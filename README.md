@@ -31,9 +31,10 @@ stockage **100 % local chiffré** (AES-256).
   téléphone (BootReceiver).
 - **Sauvegarde** : export d'une archive chiffrée par mot de passe (à conserver
   hors du téléphone) et restauration complète ; suppression définitive du dossier.
-- **Aucune permission INTERNET** (explicitement retirée du manifeste fusionné) :
-  aucune requête réseau n'est techniquement possible, aucune donnée ne peut
-  quitter le téléphone.
+- **Respect de la vie privée** : la permission INTERNET n'est utilisée que par
+  la recherche **manuelle** de mises à jour (réglages → Mise à jour, requête
+  GET anonyme vers api.github.com) — aucune donnée de santé ne quitte jamais
+  le téléphone, aucun tracker, aucune analytics.
 
 ## Stack technique
 

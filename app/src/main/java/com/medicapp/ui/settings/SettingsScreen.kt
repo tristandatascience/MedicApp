@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +97,14 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Recherche ponctuelle de mise à jour (requête anonyme vers GitHub). */
+    fun checkUpdate(onResult: (com.medicapp.updates.UpdateChecker.ReleaseInfo?) -> Unit) {
+        viewModelScope.launch {
+            val info = com.medicapp.updates.UpdateChecker.fetchLatest()
+            withContext(Dispatchers.Main) { onResult(info) }
+        }
+    }
+
     /** Suppression définitive de l'ensemble du dossier (§ 6, droit à l'effacement). */
     fun wipeAllData(context: Context) {
         viewModelScope.launch {
@@ -127,6 +136,28 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     var showExportPassword by remember { mutableStateOf<android.net.Uri?>(null) }
     var showImportPassword by remember { mutableStateOf<android.net.Uri?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    // --- Mise à jour ---
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateRelease by remember { mutableStateOf<com.medicapp.updates.UpdateChecker.ReleaseInfo?>(null) }
+    var updateUpToDate by remember { mutableStateOf(false) }
+    var updateError by remember { mutableStateOf<String?>(null) }
+    var downloadId by remember { mutableStateOf<Long?>(null) }
+    var updateReady by remember { mutableStateOf(false) }
+    val currentVersion = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "?"
+    }
+
+    DisposableEffect(downloadId) {
+        val receiver = downloadId?.let { id ->
+            com.medicapp.updates.ApkInstaller.registerCompletionReceiver(context, id) {
+                updateReady = true
+            }
+        }
+        onDispose { receiver?.let { context.unregisterReceiver(it) } }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
@@ -233,6 +264,35 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                 onClick = { showWipe = true },
             )
 
+            SettingsSection("Mise à jour")
+            SettingRow(
+                title = "Rechercher une mise à jour",
+                subtitle = "Vérifie les nouvelles versions sur GitHub (requête anonyme, " +
+                    "aucune donnée envoyée). Version actuelle : $currentVersion",
+                onClick = {
+                    updateChecking = true
+                    updateUpToDate = false
+                    updateError = null
+                    vm.checkUpdate { info ->
+                        updateChecking = false
+                        when {
+                            info == null -> updateError =
+                                "Impossible de joindre GitHub. Vérifiez votre connexion Internet."
+                            com.medicapp.updates.UpdateChecker.isNewer(currentVersion, info.versionName) ->
+                                updateRelease = info
+                            else -> updateUpToDate = true
+                        }
+                    }
+                },
+            )
+            if (com.medicapp.updates.ApkInstaller.downloadedApk(context).exists()) {
+                SettingRow(
+                    title = "Installer l'APK téléchargé",
+                    subtitle = "Lance l'installation de la mise à jour déjà présente sur le téléphone",
+                    onClick = { com.medicapp.updates.ApkInstaller.install(context) },
+                )
+            }
+
             SettingsSection("À propos")
             Text(
                 "Politique de confidentialité — Cette application est un outil personnel : " +
@@ -311,6 +371,92 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                         Toast.makeText(context, "Mot de passe incorrect ou archive invalide", Toast.LENGTH_LONG).show()
                     }
                 }
+            },
+        )
+    }
+
+    if (updateChecking) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Recherche de mise à jour") },
+            text = { Text("Interrogation de GitHub…") },
+            confirmButton = {},
+        )
+    }
+
+    if (updateUpToDate) {
+        AlertDialog(
+            onDismissRequest = { updateUpToDate = false },
+            title = { Text("Application à jour") },
+            text = { Text("La version installée ($currentVersion) est la plus récente disponible.") },
+            confirmButton = {
+                TextButton(onClick = { updateUpToDate = false }) { Text("OK") }
+            },
+        )
+    }
+
+    updateError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { updateError = null },
+            title = { Text("Recherche impossible") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { updateError = null }) { Text("OK") } },
+        )
+    }
+
+    updateRelease?.let { release ->
+        AlertDialog(
+            onDismissRequest = { updateRelease = null },
+            title = { Text("Version ${release.versionName} disponible") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        release.notes.ifBlank { "Nouvelle version disponible sur GitHub." },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Le téléchargement utilise le gestionnaire de téléchargement du téléphone ; " +
+                            "l'installation peut demander d'autoriser les sources inconnues.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = release.apkUrl != null,
+                    onClick = {
+                        val url = release.apkUrl ?: return@Button
+                        downloadId = com.medicapp.updates.ApkInstaller.download(context, url)
+                        Toast.makeText(
+                            context,
+                            "Téléchargement démarré — suivez la notification système",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        updateRelease = null
+                    },
+                ) { Text("Télécharger") }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateRelease = null }) { Text("Plus tard") }
+            },
+        )
+    }
+
+    if (updateReady) {
+        AlertDialog(
+            onDismissRequest = { updateReady = false },
+            title = { Text("Téléchargement terminé") },
+            text = { Text("La mise à jour a été téléchargée. Lancer l'installation maintenant ?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    updateReady = false
+                    com.medicapp.updates.ApkInstaller.install(context)
+                }) { Text("Installer") }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateReady = false }) { Text("Plus tard") }
             },
         )
     }

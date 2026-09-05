@@ -3,11 +3,14 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Nota : la permission INTERNET injectée par des bibliothèques est
-      explicitement retirée du manifeste fusionné — aucune requête réseau
-      n'est possible (critère de recette § 9 : aucune fuite de données).
+      Réseau utilisé UNIQUEMENT par la recherche manuelle de mises à jour
+      (réglages -> Mise à jour) : requête GET anonyme vers api.github.com.
+      Aucune donnée de santé ne quitte jamais le téléphone.
     -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Installation des mises à jour (APK signé du dépôt GitHub) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Numérisation de documents -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -56,5 +59,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Partage de l'APK téléchargé avec le programme d'installation -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
