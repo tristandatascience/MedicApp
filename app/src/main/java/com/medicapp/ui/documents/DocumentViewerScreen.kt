@@ -69,7 +69,11 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
     fun observe(id: Long) = container.documentRepository.observeById(id)
 
     /** Déchiffre et met en pages le document (rendu PDF ou image). */
-    suspend fun renderPages(storageKey: String, mimeType: String): List<Bitmap> = withContext(Dispatchers.IO) {
+    suspend fun renderPages(
+        storageKey: String,
+        mimeType: String,
+        maxWidth: Int = 1080,
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
         val bytes = container.documentRepository.open(storageKey)
         if (mimeType == "application/pdf") {
             val temp = File.createTempFile("medic-view", ".pdf")
@@ -79,7 +83,6 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
                     PdfRenderer(pfd).use { renderer ->
                         (0 until renderer.pageCount).mapNotNull { index ->
                             renderer.openPage(index).use { page ->
-                                val maxWidth = 1080
                                 val scale = maxWidth.toFloat() / page.width
                                 val bitmap = Bitmap.createBitmap(
                                     (page.width * scale).toInt().coerceAtLeast(1),
@@ -105,11 +108,6 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
         viewModelScope.launch { container.documentRepository.updateOcr(id, text.trim().ifBlank { null }) }
     }
 
-    /**
-     * Transcription approfondie par le VLM embarqué (à la demande) : tampons,
-     * écriture difficile. Le résultat remplace le champ éditable —
-     * l'utilisateur vérifie puis enregistre (validation manuelle).
-     */
     fun aiEnhance(
         storageKey: String,
         mimeType: String,
@@ -117,11 +115,13 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
     ) {
         viewModelScope.launch {
             val outcome = runCatching {
-                val bitmaps = renderPages(storageKey, mimeType)
+                // Haute résolution pour le VLM : 2048 px (le rendu écran 1080 px
+                // est trop pauvre pour les petits textes et les tampons).
+                val bitmaps = renderPages(storageKey, mimeType, maxWidth = 2048)
                 check(bitmaps.isNotEmpty()) { "document illisible" }
                 val sb = StringBuilder()
                 bitmaps.forEachIndexed { index, bitmap ->
-                    val jpeg = com.medicapp.scan.ScanPipeline.toJpeg(bitmap, 90)
+                    val jpeg = com.medicapp.scan.ScanPipeline.toJpeg(bitmap, 92)
                     val pageText = container.gemmaEngine.transcribe(jpeg).trim()
                     if (bitmaps.size > 1) sb.append("=== Page ${index + 1} ===\n")
                     sb.append(pageText)
@@ -132,7 +132,14 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
             }
             withContext(Dispatchers.Main) {
                 val text = outcome.getOrNull()?.takeIf { it.isNotBlank() }
-                onDone(text, if (text == null) outcome.exceptionOrNull()?.message ?: "aucun texte reconnu" else null)
+                val error = when {
+                    text == null -> outcome.exceptionOrNull()?.message ?: "aucun texte reconnu"
+                    text.length < 40 ->
+                        "le modèle n'a presque rien reconnu (réponse trop courte) — " +
+                            "essayez de reprendre la photo de plus près, à plat et bien éclairée"
+                    else -> null
+                }
+                onDone(if (error == null) text else null, error)
             }
         }
     }

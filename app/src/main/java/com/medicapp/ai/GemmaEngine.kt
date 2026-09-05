@@ -5,6 +5,7 @@ import android.net.Uri
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import java.io.File
@@ -163,7 +164,16 @@ class GemmaEngine(private val context: Context) {
      */
     suspend fun transcribe(jpegBytes: ByteArray): String = withContext(Dispatchers.IO) {
         val activeEngine = ensureEngine()
-        activeEngine.createConversation().use { conversation ->
+        val config = ConversationConfig(
+            maxOutputToken = 2048,
+            systemInstruction = Contents.of(
+                Content.Text(
+                    "Tu transcris des documents médicaux personnels de façon exhaustive " +
+                        "et fidèle, sans jamais interpréter ni conseiller."
+                )
+            ),
+        )
+        activeEngine.createConversation(config).use { conversation ->
             val response = conversation.sendMessage(
                 Contents.of(
                     Content.ImageBytes(jpegBytes),
@@ -187,6 +197,8 @@ class GemmaEngine(private val context: Context) {
             modelPath = modelFile().absolutePath,
             backend = Backend.CPU(),
             visionBackend = Backend.CPU(),
+            maxNumTokens = 4096,
+            maxNumImages = 1,
         )
         val created = Engine(config)
         created.initialize()
