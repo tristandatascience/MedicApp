@@ -17,11 +17,13 @@ object OcrFieldParser {
         /** Paires (nom du médicament, dosage détecté). */
         val drugs: List<Pair<String, String?>> = emptyList(),
         /**
-         * Lignes d'analyses ou d'examens prescrits (ordonnances de biologie,
-         * radiologie…), utiles quand il n'y a pas de médicaments dosés.
+         * Lignes d'actes prescrits sans dosage médicamenteux : analyses de
+         * biologie, imagerie, kinésithérapie, soins infirmiers, orthophonie…
          */
-        val prescribedAnalyses: List<String> = emptyList(),
+        val prescribedItems: List<String> = emptyList(),
         val prescriber: String? = null,
+        /** Spécialité médicale mentionnée (celle du prescripteur ou d'une orientation). */
+        val specialty: String? = null,
         val laboratory: String? = null,
         val vaccineName: String? = null,
         val disease: String? = null,
@@ -98,6 +100,48 @@ object OcrFieldParser {
         ExamCategory.MRI to Regex("""(?i)\b(IRM\b|r[ée]sonance magn[ée]tique)"""),
     )
 
+    /** Actes paramédicaux et soins prescrits (hors médicaments et analyses). */
+    private val PARAMEDICAL_KEYWORDS = Regex(
+        """(?i)\b(kin[ée]sith[ée]rap|masso-?kin|s[ée]ances?|r[ée][ée]ducation|infirmi[èe]re?|IDE\b|pansements?|perfusion|injections?|orthophonie|orthoptie|ergoth[ée]rap|di[ée]t[ée]tici|podolog|psychologue|psychomotric|ost[ée]opath|sophrolog|audioproth|orth[ée]siste|p[ée]dicure|soins? de suite|hospitalisation)"""
+    )
+
+    /**
+     * Spécialités par préfixe (couvre -logie / -logue / -logique) : celle du
+     * prescripteur en en-tête ou celle d'une lettre d'orientation.
+     */
+    private val SPECIALTIES = listOf(
+        "gastro-entérolog" to "Gastro-entérologie",
+        "gastroentérolog" to "Gastro-entérologie",
+        "gastroenterolog" to "Gastro-entérologie",
+        "cardiolog" to "Cardiologie",
+        "dermatolog" to "Dermatologie",
+        "pneumolog" to "Pneumologie",
+        "neurolog" to "Neurologie",
+        "rhumatolog" to "Rhumatologie",
+        "ophtalmolog" to "Ophtalmologie",
+        "gynécolog" to "Gynécologie",
+        "gynecolog" to "Gynécologie",
+        "urolog" to "Urologie",
+        "psychiatr" to "Psychiatrie",
+        "endocrinolog" to "Endocrinologie",
+        "hématolog" to "Hématologie",
+        "hematolog" to "Hématologie",
+        "oncolo" to "Oncologie",
+        "néphrolog" to "Néphrologie",
+        "nephrolog" to "Néphrologie",
+        "allergolog" to "Allergologie",
+        "stomatolog" to "Stomatologie",
+        "addictolog" to "Addictologie",
+        "gériatr" to "Gériatrie",
+        "geriatr" to "Gériatrie",
+        "pédiatr" to "Pédiatrie",
+        "pediatr" to "Pédiatrie",
+        "chirurgi" to "Chirurgie",
+        "dentaire" to "Dentaire",
+    )
+
+    private val ORL_PATTERN = Regex("""(?i)\bORL\b|oto-rhino""")
+
     fun parse(text: String): ParsedFields {
         if (text.isBlank()) return ParsedFields()
 
@@ -153,12 +197,21 @@ object OcrFieldParser {
 
         val examCategory = EXAM_KEYWORDS.firstOrNull { (_, regex) -> regex.containsMatchIn(text) }?.first
 
-        // Lignes d'analyses/examens prescrits : une ordonnance de biologie ou
-        // de radiologie liste des actes, pas des médicaments dosés.
-        val prescribedAnalyses = text.lineSequence()
+        // Spécialité : préfixe présent dans le texte (en-tête du prescripteur
+        // ou lettre d'orientation vers un confrère).
+        val specialty = SPECIALTIES.firstOrNull { (prefix, _) ->
+            text.contains(prefix, ignoreCase = true)
+        }?.second ?: if (ORL_PATTERN.containsMatchIn(text)) "ORL" else null
+
+        // Lignes d'actes prescrits sans dosage : analyses, imagerie, kiné,
+        // soins infirmiers, rééducation…
+        val prescribedItems = text.lineSequence()
             .map { it.trim() }
             .filter { it.length in 3..90 }
-            .filter { line -> EXAM_KEYWORDS.any { (_, regex) -> regex.containsMatchIn(line) } }
+            .filter { line ->
+                EXAM_KEYWORDS.any { (_, regex) -> regex.containsMatchIn(line) } ||
+                    PARAMEDICAL_KEYWORDS.containsMatchIn(line)
+            }
             .filter { it != laboratory }
             .distinctBy { it.lowercase() }
             .take(10)
@@ -168,8 +221,9 @@ object OcrFieldParser {
             dates = dates,
             times = times,
             drugs = drugs,
-            prescribedAnalyses = prescribedAnalyses,
+            prescribedItems = prescribedItems,
             prescriber = prescriber,
+            specialty = specialty,
             laboratory = laboratory,
             vaccineName = vaccine?.first,
             disease = vaccine?.second,

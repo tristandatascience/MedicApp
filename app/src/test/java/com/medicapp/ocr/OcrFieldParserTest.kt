@@ -97,9 +97,54 @@ class OcrFieldParserTest {
         )
         assertEquals("Dr. Paul Martin", parsed.prescriber)
         assertTrue(LocalDate.of(2025, 3, 12) in parsed.dates)
-        assertEquals(4, parsed.prescribedAnalyses.size)
-        assertTrue(parsed.prescribedAnalyses.any { it.contains("Glycémie") })
-        assertTrue(parsed.prescribedAnalyses.any { it.contains("Bilan lipidique") })
+        assertEquals(4, parsed.prescribedItems.size)
+        assertTrue(parsed.prescribedItems.any { it.contains("Glycémie") })
+        assertTrue(parsed.prescribedItems.any { it.contains("Bilan lipidique") })
+    }
+
+    @Test
+    fun `ordonnance de kinésithérapie reconnue`() {
+        val parsed = OcrFieldParser.parse(
+            """
+            Dr. Sophie Lambert — Médecin généraliste
+            Kinésithérapie : 10 séances
+            Rééducation de l'épaule droite
+            À renouveler si besoin
+            """.trimIndent()
+        )
+        assertEquals("Dr. Sophie Lambert", parsed.prescriber)
+        assertTrue(parsed.prescribedItems.any { it.contains("Kinésithérapie") })
+        assertTrue(parsed.prescribedItems.any { it.contains("Rééducation") })
+    }
+
+    @Test
+    fun `soins infirmiers reconnus`() {
+        val parsed = OcrFieldParser.parse(
+            """
+            Dr. Martin
+            Infirmière : pansements quotidiens
+            Injection quotidienne
+            """.trimIndent()
+        )
+        assertTrue(parsed.prescribedItems.any { it.contains("Infirmière") })
+        assertTrue(parsed.prescribedItems.any { it.contains("Injection") })
+    }
+
+    @Test
+    fun `lettre d'orientation vers un spécialiste reconnue`() {
+        val parsed = OcrFieldParser.parse(
+            """
+            Je vous prie de bien vouloir recevoir mon patient
+            pour un avis cardiologique dans le cadre de...
+            """.trimIndent()
+        )
+        assertEquals("Cardiologie", parsed.specialty)
+    }
+
+    @Test
+    fun `spécialité du prescripteur reconnue en en-tête`() {
+        val parsed = OcrFieldParser.parse("Dr. Marie Bernard\nPneumologue\nConsultation du 03/06/2025")
+        assertEquals("Pneumologie", parsed.specialty)
     }
 
     @Test
@@ -107,6 +152,7 @@ class OcrFieldParserTest {
         val parsed = OcrFieldParser.parse("   ")
         assertNull(parsed.prescriber)
         assertNull(parsed.laboratory)
+        assertNull(parsed.specialty)
         assertNull(parsed.vaccineName)
         assertTrue(parsed.dates.isEmpty())
     }

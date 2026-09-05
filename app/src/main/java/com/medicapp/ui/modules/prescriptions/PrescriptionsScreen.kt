@@ -310,14 +310,15 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
                 val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
                 parsed.mostLikelyDate?.let { if (prescriptionDate == null) prescriptionDate = it }
                 parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
+                parsed.specialty?.let { if (specialty.isBlank()) specialty = it }
                 if (medicines.isEmpty()) {
-                    // Ordonnance de médicaments : lignes « nom + dosage ».
-                    // Ordonnance de biologie/imagerie : lignes d'analyses prescrites.
+                    // Médicaments dosés, sinon actes prescrits (analyses, kiné,
+                    // soins infirmiers, orientation…).
                     medicines = when {
                         parsed.drugs.isNotEmpty() -> parsed.drugs.map { (name, dosage) ->
                             MedicineDraft(name = name, dosage = dosage ?: "", duration = "")
                         }
-                        parsed.prescribedAnalyses.isNotEmpty() -> parsed.prescribedAnalyses.map {
+                        parsed.prescribedItems.isNotEmpty() -> parsed.prescribedItems.map {
                             MedicineDraft(name = it, dosage = "", duration = "")
                         }
                         else -> emptyList()
