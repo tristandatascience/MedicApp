@@ -1,0 +1,58 @@
+name: Build Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Tests unitaires + APK debug
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: SDK Android
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', 'app/build.gradle.kts', 'build.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Droits d'exécution du wrapper
+        run: chmod +x gradlew
+
+      - name: Tests unitaires
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Compilation APK debug
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Publication des résultats de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultats-tests-unitaires
+          path: app/build/reports/tests/testDebugUnitTest/
+
+      - name: Publication de l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
