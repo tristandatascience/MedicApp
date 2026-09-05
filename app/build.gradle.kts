@@ -13,8 +13,8 @@ android {
         applicationId = "com.medicapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -105,6 +105,10 @@ dependencies {
 
     // OCR hors ligne (modèle latin embarqué — couvre le français)
     implementation(libs.mlkit.text.recognition)
+
+    // Moteur IA embarqué optionnel (Gemma 3n multimodal via LiteRT-LM) :
+    // transcription approfondie des documents — modèle téléchargé à la demande
+    implementation(libs.litertlm.android)
 
     // Tests
     testImplementation(libs.junit)

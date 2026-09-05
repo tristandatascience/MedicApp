@@ -41,6 +41,11 @@ class AppContainer(context: Context) {
 
     val pinHasher: Pbkdf2PinHasher by lazy { Pbkdf2PinHasher() }
 
+    /** Moteur IA embarqué optionnel (Gemma 3n, téléchargé à la demande). */
+    val gemmaEngine: com.medicapp.ai.GemmaEngine by lazy {
+        com.medicapp.ai.GemmaEngine(appContext)
+    }
+
     private val keystoreWrapper: com.medicapp.data.crypto.KeystoreWrapper by lazy { AndroidKeystoreWrapper() }
 
     val masterKeyManager: MasterKeyManager by lazy {

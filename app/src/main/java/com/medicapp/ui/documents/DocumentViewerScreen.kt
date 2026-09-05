@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -62,6 +63,9 @@ import kotlinx.coroutines.withContext
 
 class DocumentViewerViewModel(private val container: AppContainer) : ViewModel() {
 
+    /** Moteur IA optionnel (Gemma 3n) : installé et utilisable ? */
+    val aiInstalled: Boolean get() = container.gemmaEngine.isInstalled()
+
     fun observe(id: Long) = container.documentRepository.observeById(id)
 
     /** Déchiffre et met en pages le document (rendu PDF ou image). */
@@ -99,6 +103,38 @@ class DocumentViewerViewModel(private val container: AppContainer) : ViewModel()
 
     fun saveOcr(id: Long, text: String) {
         viewModelScope.launch { container.documentRepository.updateOcr(id, text.trim().ifBlank { null }) }
+    }
+
+    /**
+     * Transcription approfondie par le VLM embarqué (à la demande) : tampons,
+     * écriture difficile. Le résultat remplace le champ éditable —
+     * l'utilisateur vérifie puis enregistre (validation manuelle).
+     */
+    fun aiEnhance(
+        storageKey: String,
+        mimeType: String,
+        onDone: (text: String?, error: String?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val outcome = runCatching {
+                val bitmaps = renderPages(storageKey, mimeType)
+                check(bitmaps.isNotEmpty()) { "document illisible" }
+                val sb = StringBuilder()
+                bitmaps.forEachIndexed { index, bitmap ->
+                    val jpeg = com.medicapp.scan.ScanPipeline.toJpeg(bitmap, 90)
+                    val pageText = container.gemmaEngine.transcribe(jpeg).trim()
+                    if (bitmaps.size > 1) sb.append("=== Page ${index + 1} ===\n")
+                    sb.append(pageText)
+                    if (index < bitmaps.size - 1) sb.append("\n\n")
+                }
+                container.gemmaEngine.releaseEngine()
+                sb.toString().trim()
+            }
+            withContext(Dispatchers.Main) {
+                val text = outcome.getOrNull()?.takeIf { it.isNotBlank() }
+                onDone(text, if (text == null) outcome.exceptionOrNull()?.message ?: "aucun texte reconnu" else null)
+            }
+        }
     }
 
     fun saveTitle(id: Long, title: String) {
@@ -202,6 +238,49 @@ fun DocumentViewerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
+
+                    // Transcription approfondie par le moteur IA embarqué (bêta).
+                    var aiBusy by remember { mutableStateOf(false) }
+                    if (vm.aiInstalled && !aiBusy) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = {
+                                aiBusy = true
+                                vm.aiEnhance(doc.storageKey, doc.mimeType) { text, error ->
+                                    aiBusy = false
+                                    if (text != null) {
+                                        ocrText = text
+                                        Toast.makeText(
+                                            context,
+                                            "Transcription IA effectuée — vérifiez puis enregistrez",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "Analyse IA impossible : $error",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Améliorer la transcription avec l'IA (bêta)")
+                        }
+                    }
+                    if (aiBusy) {
+                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.padding(end = 12.dp).height(24.dp)
+                            )
+                            Text(
+                                "Analyse IA en cours — jusqu'à une minute par page…",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+
                     OutlinedTextField(
                         value = ocrText,
                         onValueChange = { ocrText = it },

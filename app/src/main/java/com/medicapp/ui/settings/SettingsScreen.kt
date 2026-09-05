@@ -1,7 +1,9 @@
 package com.medicapp.ui.settings
 
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -159,6 +161,24 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
         onDispose { receiver?.let { context.unregisterReceiver(it) } }
     }
 
+    // --- Moteur IA embarqué (optionnel, à la demande) ---
+    val aiEngine = com.medicapp.ui.LocalAppContainer.current.gemmaEngine
+    var aiInstalled by remember { mutableStateOf(aiEngine.isInstalled()) }
+    var aiDownloadId by remember { mutableStateOf<Long?>(null) }
+    var showDeleteAi by remember { mutableStateOf(false) }
+
+    DisposableEffect(aiDownloadId) {
+        val receiver = aiDownloadId?.let { id ->
+            com.medicapp.updates.ApkInstaller.registerCompletionReceiver(context, id) {
+                aiInstalled = aiEngine.isInstalled()
+                if (aiInstalled) {
+                    Toast.makeText(context, "Moteur IA installé", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        onDispose { receiver?.let { context.unregisterReceiver(it) } }
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri -> if (uri != null) showExportPassword = uri }
@@ -291,6 +311,48 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                     title = "Installer l'APK téléchargé",
                     subtitle = "Lance l'installation de la mise à jour déjà présente sur le téléphone",
                     onClick = { com.medicapp.updates.ApkInstaller.install(context) },
+                )
+            }
+
+            SettingsSection("Intelligence artificielle (bêta)")
+            if (aiInstalled) {
+                SettingRow(
+                    title = "Moteur IA installé",
+                    subtitle = "${com.medicapp.ai.GemmaEngine.MODEL_LABEL} — " +
+                        "${aiEngine.installedSizeMb()} Mo · fonctionne hors ligne",
+                    onClick = {},
+                )
+                SettingRow(
+                    title = "Supprimer le modèle IA",
+                    subtitle = "Libère environ 2 Go d'espace de stockage",
+                    destructive = true,
+                    onClick = { showDeleteAi = true },
+                )
+            } else {
+                SettingRow(
+                    title = "Télécharger le moteur IA (≈ 2 Go)",
+                    subtitle = "Gemma 3n — transcription approfondie des documents : tampons, " +
+                        "écriture difficile, mises en page complexes. Wi-Fi conseillé. " +
+                        "Fonctionne hors ligne après téléchargement : aucune donnée " +
+                        "n'est envoyée sur Internet.",
+                    onClick = {
+                        val target = aiEngine.modelFile()
+                        target.parentFile?.mkdirs()
+                        val request = DownloadManager.Request(Uri.parse(com.medicapp.ai.GemmaEngine.MODEL_URL))
+                            .setTitle("Moteur IA — Dossier Médical")
+                            .setDescription("Gemma 3n E2B (≈ 2 Go)")
+                            .setDestinationUri(Uri.fromFile(target))
+                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                            .setAllowedOverMetered(false)
+                            .setAllowedOverRoaming(false)
+                        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                        aiDownloadId = manager.enqueue(request)
+                        Toast.makeText(
+                            context,
+                            "Téléchargement du moteur IA démarré — suivez la notification système",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    },
                 )
             }
 
@@ -442,6 +504,22 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
             dismissButton = {
                 TextButton(onClick = { updateRelease = null }) { Text("Plus tard") }
             },
+        )
+    }
+
+    if (showDeleteAi) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAi = false },
+            title = { Text("Supprimer le modèle IA ?") },
+            text = { Text("Libère environ 2 Go. L'amélioration IA de la transcription redeviendra indisponible (l'OCR classique continue de fonctionner).") },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiEngine.deleteModel()
+                    aiInstalled = false
+                    showDeleteAi = false
+                }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteAi = false }) { Text("Annuler") } },
         )
     }
 
