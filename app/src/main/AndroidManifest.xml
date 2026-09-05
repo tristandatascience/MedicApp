@@ -60,6 +60,10 @@
             </intent-filter>
         </receiver>
 
+        <!-- Accélération GPU (OpenCL) du moteur IA ; facultatif, repli CPU automatique -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
         <!-- Partage de l'APK téléchargé avec le programme d'installation -->
         <provider
             android:name="androidx.core.content.FileProvider"

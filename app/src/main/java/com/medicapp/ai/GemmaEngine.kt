@@ -168,8 +168,10 @@ class GemmaEngine(private val context: Context) {
             maxOutputToken = 2048,
             systemInstruction = Contents.of(
                 Content.Text(
-                    "Tu transcris des documents médicaux personnels de façon exhaustive " +
-                        "et fidèle, sans jamais interpréter ni conseiller."
+                    "Tu es un transcriveur méticuleux de documents médicaux personnels. " +
+                        "Tu décris uniquement ce qui est visible, sans jamais interpréter, " +
+                        "diagnostiquer ni conseiller. Tu respectes strictement le format " +
+                        "de sortie demandé."
                 )
             ),
         )
@@ -193,15 +195,31 @@ class GemmaEngine(private val context: Context) {
         check(isInstalled()) {
             "Modèle IA non téléchargé. Réglages → Intelligence artificielle."
         }
-        val config = EngineConfig(
-            modelPath = modelFile().absolutePath,
-            backend = Backend.CPU(),
-            visionBackend = Backend.CPU(),
-            maxNumTokens = 4096,
-            maxNumImages = 1,
-        )
-        val created = Engine(config)
-        created.initialize()
+        val modelPath = modelFile().absolutePath
+        // GPU (OpenCL) nettement plus rapide quand disponible ; repli CPU sinon.
+        val created = runCatching {
+            Engine(
+                EngineConfig(
+                    modelPath = modelPath,
+                    backend = Backend.GPU(),
+                    visionBackend = Backend.GPU(),
+                    maxNumTokens = 4096,
+                    maxNumImages = 1,
+                )
+            ).also { it.initialize() }
+        }.getOrElse {
+            val cpu = Engine(
+                EngineConfig(
+                    modelPath = modelPath,
+                    backend = Backend.CPU(),
+                    visionBackend = Backend.CPU(),
+                    maxNumTokens = 4096,
+                    maxNumImages = 1,
+                )
+            )
+            cpu.initialize()
+            cpu
+        }
         engine = created
         return created
     }
@@ -229,13 +247,22 @@ class GemmaEngine(private val context: Context) {
         private const val MIN_MODEL_BYTES = 500_000_000L
 
         private val TRANSCRIBE_PROMPT = """
-            Tu es un assistant de transcription de documents médicaux personnels.
-            Transcris fidèlement et intégralement tout le texte visible de cette
-            page, y compris les tampons, les en-têtes, les mentions manuscrites
-            lisibles et les annotations en marge. Conserve l'ordre de lecture
-            naturel (de haut en bas). Si une partie est illisible, écris
-            [illisible]. Réponds uniquement avec la transcription, sans
-            commentaire ni interprétation médicale.
+            Examine attentivement cette page de document médical, y compris les
+            zones peu contrastées, les tampons et les marges. Transcris-la en
+            respectant STRICTEMENT ce format, une section par ligne, dans cet
+            ordre. Si une information est absente ou illisible, écris
+            "absent" ou "[illisible]" — n'invente jamais rien.
+
+            TYPE : (ordonnance de médicaments / ordonnance de biologie / ordonnance kiné ou paramédicale / lettre d'orientation / résultat d'examen / carnet de vaccination / autre)
+            EN-TÊTE : (noms et coordonnées des médecins, cabinets ou laboratoires imprimés en haut de page)
+            TAMPON : (texte exact du ou des tampons, même écrit en rond ou incliné)
+            DATE : (chaque date visible, au format JJ/MM/AAAA)
+            PATIENT : (nom du patient si visible)
+            CORPS : (transcription intégrale ligne par ligne du corps du document : médicaments avec dosages, analyses prescrites, actes, quantités et durées)
+            MANUSCRIT : (toute mention écrite à la main et lisible)
+            PIED DE PAGE : (mentions du bas de page, signature, paraphe, docteur je soussigné, etc.)
+
+            Réponds uniquement avec ces sections, sans commentaire.
         """.trimIndent()
     }
 }
