@@ -20,8 +20,9 @@ stockage **100 % local chiffré** (AES-256).
 - **OCR hors ligne** (ML Kit, modèle embarqué) : texte extrait automatiquement,
   consultable, corrigeable, copiable et indexé pour la recherche plein texte.
   Multi-passes : contraste renforcé, filtre « tampon bleu », rotations.
-- **Moteur IA embarqué optionnel (bêta)** : Gemma 3n E2B multimodal via
-  LiteRT-LM, téléchargé à la demande depuis les réglages (≈ 2 Go) puis 100 %
+- **Moteur IA embarqué optionnel (bêta)** : Gemma 4 E2B multimodal via
+  LiteRT-LM (litert-community, accès libre), téléchargé à la demande depuis
+  les réglages (≈ 2,6 Go) puis 100 %
   hors ligne — bouton « Améliorer la transcription avec l'IA » dans la
   visionneuse de documents (tampons, écriture difficile). Double emploi :
   base du futur assistant conversationnel.

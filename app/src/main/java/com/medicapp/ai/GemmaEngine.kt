@@ -14,13 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Moteur IA embarqué optionnel : Gemma 3n E2B multimodal (LiteRT-LM).
- * Double emploi (§ évolutions) : transcription approfondie des documents
- * numérisés (tampons, écriture difficile) et base du futur assistant.
+ * Moteur IA embarqué optionnel : Gemma 4 E2B multimodal (LiteRT-LM), hébergé
+ * par l'organisation communautaire officielle LiteRT (accès libre, sans
+ * compte). Double emploi (§ évolutions) : transcription approfondie des
+ * documents numérisés (tampons, écriture difficile) et base du futur
+ * assistant.
  *
- * Le modèle (~2 Go, quantifié int4) est téléchargé à la demande depuis
- * HuggingFace puis fonctionne intégralement hors ligne. Rien n'est envoyé
- * à un serveur.
+ * Le modèle (~2,6 Go) est téléchargé à la demande puis fonctionne
+ * intégralement hors ligne. Rien n'est envoyé à un serveur.
  */
 class GemmaEngine(private val context: Context) {
 
@@ -59,7 +60,7 @@ class GemmaEngine(private val context: Context) {
     }
 
     /**
-     * Télécharge le modèle (~2 Go) directement dans l'application.
+     * Télécharge le modèle (~2,6 Go) directement dans l'application.
      * Reprend automatiquement un téléchargement partiel (en-tête Range).
      */
     suspend fun downloadModel(): Boolean = withContext(Dispatchers.IO) {
@@ -207,10 +208,10 @@ class GemmaEngine(private val context: Context) {
 
     companion object {
         private const val MODELS_DIR = "models"
-        const val MODEL_FILE_NAME = "gemma-3n-E2B-it-int4.litertlm"
+        const val MODEL_FILE_NAME = "gemma-4-E2B-it.litertlm"
         const val MODEL_URL =
-            "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/$MODEL_FILE_NAME"
-        const val MODEL_LABEL = "Gemma 3n E2B (int4, ≈ 2 Go)"
+            "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/$MODEL_FILE_NAME"
+        const val MODEL_LABEL = "Gemma 4 E2B (≈ 2,6 Go)"
 
         /** En dessous, le fichier est considéré incomplet. */
         private const val MIN_MODEL_BYTES = 500_000_000L

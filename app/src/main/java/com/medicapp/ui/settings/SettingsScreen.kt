@@ -368,7 +368,7 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     Text(
-                        "≈ 2 Go — laissez l'application ouverte ; la reprise est automatique en cas d'interruption.",
+                        "≈ 2,6 Go — laissez l'application ouverte ; la reprise est automatique en cas d'interruption.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -383,16 +383,16 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
             } else {
                 val freeMb = context.getExternalFilesDir(null)?.usableSpace?.div(1024 * 1024) ?: 0L
                 SettingRow(
-                    title = "Télécharger le moteur IA (≈ 2 Go)",
-                    subtitle = "Gemma 3n — transcription approfondie des documents : tampons, " +
+                    title = "Télécharger le moteur IA (≈ 2,6 Go)",
+                    subtitle = "Gemma 4 — transcription approfondie des documents : tampons, " +
                         "écriture difficile, mises en page complexes. Espace libre : $freeMb Mo. " +
                         "Fonctionne hors ligne après téléchargement : aucune donnée " +
                         "n'est envoyée sur Internet.",
                     onClick = {
-                        if (freeMb < 2500) {
+                        if (freeMb < 3100) {
                             Toast.makeText(
                                 context,
-                                "Espace insuffisant : $freeMb Mo libres, environ 2,5 Go requis. " +
+                                "Espace insuffisant : $freeMb Mo libres, environ 3 Go requis. " +
                                     "Libérez de l'espace ou utilisez l'import manuel ci-dessous.",
                                 Toast.LENGTH_LONG,
                             ).show()
