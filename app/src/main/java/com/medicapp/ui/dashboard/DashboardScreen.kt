@@ -9,14 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Medication
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -70,6 +68,7 @@ class DashboardViewModel(container: AppContainer) : ViewModel() {
 fun DashboardScreen(
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDocuments: () -> Unit = {},
     onOpenModule: (String) -> Unit,
     onManageProfiles: () -> Unit,
 ) {
@@ -111,6 +110,9 @@ fun DashboardScreen(
                         },
                     )
                 }
+            }
+            IconButton(onClick = onOpenDocuments) {
+                Icon(Icons.Outlined.Folder, contentDescription = "Documents numérisés")
             }
             IconButton(onClick = onOpenSearch) {
                 Icon(Icons.Outlined.Search, contentDescription = "Rechercher")
@@ -207,37 +209,11 @@ fun DashboardScreen(
         }
 
         Spacer(Modifier.height(16.dp))
-
-        // --- Accès rapide aux modules ---
-        Text("Mes modules", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier.fillMaxWidth().height(200.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(
-                listOf(
-                    "Vaccinations" to Routes.VACCINATIONS,
-                    "Traitements" to Routes.TREATMENTS,
-                    "Ordonnances" to Routes.PRESCRIPTIONS,
-                    "Examens" to Routes.EXAMS,
-                    "Rendez-vous" to Routes.APPOINTMENTS,
-                )
-            ) { (label, route) ->
-                Card(onClick = { onOpenModule(route) }) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text("🗂", style = MaterialTheme.typography.headlineMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(label, style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
+        Text(
+            "Retrouvez vos modules dans la barre de navigation du bas.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(16.dp))
     }
 }

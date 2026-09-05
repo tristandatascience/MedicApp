@@ -316,6 +316,9 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
                     }
                 }
                 prefilledFromScan = true
+            } else if (doc != null) {
+                // OCR sans texte exploitable : saisie manuelle, document joint à l'enregistrement.
+                prefilledFromScan = true
             }
         }
     }

@@ -97,10 +97,22 @@ fun ScanFlowScreen(
     val vm: ScanViewModel = containerViewModel { ScanViewModel(it) }
     val pages by vm.pages.collectAsState()
     val processing by vm.processing.collectAsState()
+    val error by vm.error.collectAsState()
 
     var cropInput by remember { mutableStateOf<ByteArray?>(null) }
     var showTitleDialog by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf("") }
+
+    if (error != null) {
+        AlertDialog(
+            onDismissRequest = vm::dismissError,
+            title = { Text("Numérisation interrompue") },
+            text = { Text(error ?: "") },
+            confirmButton = {
+                TextButton(onClick = vm::dismissError) { Text("Réessayer") }
+            },
+        )
+    }
 
     when {
         processing -> {
@@ -240,8 +252,12 @@ private fun CameraScreen(
                 preview,
                 imageCapture,
             )
-        } catch (_: Exception) {
-            // Caméra indisponible
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(
+                context,
+                "Caméra indisponible : ${e.message ?: "erreur inconnue"}",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
         }
     }
 
@@ -261,7 +277,11 @@ private fun CameraScreen(
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    // Échec de capture : l'utilisateur peut réessayer
+                    android.widget.Toast.makeText(
+                        context,
+                        "Échec de la prise de photo : ${exception.message ?: "erreur caméra"}",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                 }
             },
         )

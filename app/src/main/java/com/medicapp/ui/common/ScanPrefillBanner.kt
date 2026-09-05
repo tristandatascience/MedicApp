@@ -33,8 +33,9 @@ fun ScanPrefillBanner(modifier: Modifier = Modifier) {
             Icon(Icons.Outlined.DocumentScanner, contentDescription = null)
             Spacer(Modifier.size(10.dp))
             Text(
-                "Champs pré-remplis à partir du document numérisé — vérifiez-les " +
-                    "et complétez avant d'enregistrer.",
+                "Document numérisé joint à cette fiche. Les champs reconnus ont été " +
+                    "pré-remplis : vérifiez-les, corrigez-les ou complétez avant d'enregistrer. " +
+                    "Le document original reste consultable depuis la fiche.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

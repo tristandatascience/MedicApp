@@ -337,6 +337,9 @@ fun AppointmentFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> 
                 parsed.prescriber?.let { if (professional.isBlank()) professional = it }
                 parsed.laboratory?.let { if (establishment.isBlank()) establishment = it }
                 prefilledFromScan = true
+            } else if (doc != null) {
+                // OCR sans texte exploitable : saisie manuelle, document joint à l'enregistrement.
+                prefilledFromScan = true
             }
         }
     }

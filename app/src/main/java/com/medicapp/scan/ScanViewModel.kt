@@ -30,7 +30,14 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
     private val _processing = MutableStateFlow(false)
     val processing: StateFlow<Boolean> = _processing
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     private val ocrEngine = OcrEngine()
+
+    fun dismissError() {
+        _error.value = null
+    }
 
     fun addPage(jpeg: ByteArray) {
         _pages.value = _pages.value + ScanPage(jpeg = jpeg)
@@ -45,6 +52,7 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
     /**
      * Assemble le PDF, exécute l'OCR de chaque page puis enregistre le
      * document chiffré. Retourne l'identifiant du document créé.
+     * Les pages capturées sont conservées en cas d'échec (nouvel essai possible).
      */
     fun finalize(
         owner: DocumentOwner,
@@ -54,35 +62,47 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
     ) {
         if (_pages.value.isEmpty()) return
         _processing.value = true
+        _error.value = null
         viewModelScope.launch {
-            val profileId = container.settings.current().currentProfileId
-            val documentId = withContext(Dispatchers.IO) {
-                val bitmaps = _pages.value.mapNotNull { ScanPipeline.decode(it.jpeg) }
-                val pdfBytes = ScanPipeline.buildPdf(bitmaps)
+            try {
+                val profileId = container.settings.current().currentProfileId
+                val documentId = withContext(Dispatchers.IO) {
+                    val bitmaps = _pages.value.mapNotNull { ScanPipeline.decode(it.jpeg) }
+                    check(bitmaps.isNotEmpty()) {
+                        "Aucune page exploitable n'a été capturée. Reprenez la photo."
+                    }
+                    val pdfBytes = ScanPipeline.buildPdf(bitmaps)
 
-                // OCR page par page (modèle embarqué, hors ligne).
-                val ocrText = StringBuilder()
-                bitmaps.forEachIndexed { index, bitmap ->
-                    val text = ocrEngine.recognize(bitmap)
-                    if (bitmaps.size > 1) ocrText.append("=== Page ${index + 1} ===\n")
-                    ocrText.append(text.trim())
-                    if (index < bitmaps.size - 1) ocrText.append("\n\n")
+                    // OCR page par page (modèle embarqué, hors ligne).
+                    val ocrText = StringBuilder()
+                    bitmaps.forEachIndexed { index, bitmap ->
+                        val text = ocrEngine.recognize(bitmap)
+                        if (bitmaps.size > 1) ocrText.append("=== Page ${index + 1} ===\n")
+                        ocrText.append(text.trim())
+                        if (index < bitmaps.size - 1) ocrText.append("\n\n")
+                    }
+
+                    container.documentRepository.create(
+                        profileId = profileId,
+                        title = title.ifBlank { "Document du ${java.time.LocalDate.now()}" },
+                        mimeType = "application/pdf",
+                        pageCount = bitmaps.size,
+                        bytes = pdfBytes,
+                        owner = owner,
+                        ownerId = ownerId,
+                        ocrText = ocrText.toString().trim().ifBlank { null },
+                    )
                 }
-
-                container.documentRepository.create(
-                    profileId = profileId,
-                    title = title.ifBlank { "Document du ${java.time.LocalDate.now()}" },
-                    mimeType = "application/pdf",
-                    pageCount = bitmaps.size,
-                    bytes = pdfBytes,
-                    owner = owner,
-                    ownerId = ownerId,
-                    ocrText = ocrText.toString().trim().ifBlank { null },
-                )
+                _processing.value = false
+                _pages.value = emptyList()
+                onDone(documentId)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Échec de l'enregistrement du scan", e)
+                _processing.value = false
+                _error.value = "Échec de l'enregistrement du document : " +
+                    (e.message ?: "erreur inconnue") +
+                    ". Les pages capturées sont conservées, vous pouvez réessayer."
             }
-            _processing.value = false
-            _pages.value = emptyList()
-            onDone(documentId)
         }
     }
 
@@ -92,22 +112,30 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun finalizeImportedPdf(owner: DocumentOwner, ownerId: Long?, bytes: ByteArray, onDone: (Long) -> Unit) {
         _processing.value = true
+        _error.value = null
         viewModelScope.launch {
-            val profileId = container.settings.current().currentProfileId
-            val documentId = withContext(Dispatchers.IO) {
-                container.documentRepository.create(
-                    profileId = profileId,
-                    title = "Document importé du ${java.time.LocalDate.now()}",
-                    mimeType = "application/pdf",
-                    pageCount = countPdfPages(bytes),
-                    bytes = bytes,
-                    owner = owner,
-                    ownerId = ownerId,
-                    ocrText = null,
-                )
+            try {
+                val profileId = container.settings.current().currentProfileId
+                val documentId = withContext(Dispatchers.IO) {
+                    container.documentRepository.create(
+                        profileId = profileId,
+                        title = "Document importé du ${java.time.LocalDate.now()}",
+                        mimeType = "application/pdf",
+                        pageCount = countPdfPages(bytes),
+                        bytes = bytes,
+                        owner = owner,
+                        ownerId = ownerId,
+                        ocrText = null,
+                    )
+                }
+                _processing.value = false
+                onDone(documentId)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Échec de l'import du PDF", e)
+                _processing.value = false
+                _error.value = "Échec de l'import du PDF : " +
+                    (e.message ?: "erreur inconnue")
             }
-            _processing.value = false
-            onDone(documentId)
         }
     }
 
@@ -128,5 +156,9 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
     override fun onCleared() {
         ocrEngine.close()
         super.onCleared()
+    }
+
+    companion object {
+        private const val TAG = "ScanViewModel"
     }
 }

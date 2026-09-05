@@ -68,6 +68,7 @@ object Routes {
     const val APPOINTMENT_FORM = "appointment-form/{id}?doc={doc}"
     const val SCAN = "scan/{ownerType}/{ownerId}"
     const val DOCUMENT = "document/{id}"
+    const val DOCUMENTS = "documents"
 
     fun vaccinationDetail(id: Long) = "vaccination/$id"
     fun vaccinationForm(id: Long, doc: Long? = null) = formUrl("vaccination-form/$id", doc)
@@ -168,6 +169,7 @@ fun MedicNavHost(
                 DashboardScreen(
                     onOpenSearch = { navController.navigate(Routes.SEARCH) },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onOpenDocuments = { navController.navigate(Routes.DOCUMENTS) },
                     onOpenModule = { route -> navController.navigate(route) },
                     onManageProfiles = { navController.navigate(Routes.PROFILES) },
                 )
@@ -336,6 +338,12 @@ fun MedicNavHost(
                 com.medicapp.ui.documents.DocumentViewerScreen(
                     id = entry.arguments?.getLong("id") ?: -1L,
                     onBack = navigateUp,
+                )
+            }
+            composable(Routes.DOCUMENTS) {
+                com.medicapp.ui.documents.DocumentsScreen(
+                    onBack = navigateUp,
+                    onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
         }

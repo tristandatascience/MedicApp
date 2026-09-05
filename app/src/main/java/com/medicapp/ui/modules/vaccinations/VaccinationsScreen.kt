@@ -362,6 +362,9 @@ fun VaccinationFormScreen(
                 parsed.mostLikelyDate?.let { if (injectionDate == null) injectionDate = it }
                 parsed.prescriber?.let { if (provider.isBlank()) provider = it }
                 prefilledFromScan = true
+            } else if (doc != null) {
+                // OCR sans texte exploitable : saisie manuelle, document joint à l'enregistrement.
+                prefilledFromScan = true
             }
         }
     }

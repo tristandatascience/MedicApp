@@ -286,6 +286,9 @@ fun ExamFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Unit) {
                 parsed.laboratory?.let { if (laboratory.isBlank()) laboratory = it }
                 parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
                 prefilledFromScan = true
+            } else if (doc != null) {
+                // OCR sans texte exploitable : saisie manuelle, document joint à l'enregistrement.
+                prefilledFromScan = true
             }
         }
     }
