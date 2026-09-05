@@ -161,7 +161,7 @@ fun PrescriptionsScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 Text(
-                                    "${item.medicines.size} médicament(s)",
+                                    "${item.medicines.size} ligne(s) prescrite(s)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -244,7 +244,7 @@ fun PrescriptionDetailScreen(
                 DetailRow("Validité", "$it jours (jusqu'au ${Format.dateShort(p.prescriptionDate.plusDays(it.toLong()))})")
             } ?: DetailRow("Validité", "12 mois (durée par défaut)")
             p.notes?.let { DetailRow("Notes", it) }
-            FormSectionTitle("Médicaments prescrits")
+            FormSectionTitle("Médicaments ou analyses prescrits")
             item?.medicines?.sortedBy { it.position }?.forEach { medicine ->
                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Text(medicine.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -310,9 +310,17 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
                 val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
                 parsed.mostLikelyDate?.let { if (prescriptionDate == null) prescriptionDate = it }
                 parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
-                if (parsed.drugs.isNotEmpty() && medicines.isEmpty()) {
-                    medicines = parsed.drugs.map { (name, dosage) ->
-                        MedicineDraft(name = name, dosage = dosage ?: "", duration = "")
+                if (medicines.isEmpty()) {
+                    // Ordonnance de médicaments : lignes « nom + dosage ».
+                    // Ordonnance de biologie/imagerie : lignes d'analyses prescrites.
+                    medicines = when {
+                        parsed.drugs.isNotEmpty() -> parsed.drugs.map { (name, dosage) ->
+                            MedicineDraft(name = name, dosage = dosage ?: "", duration = "")
+                        }
+                        parsed.prescribedAnalyses.isNotEmpty() -> parsed.prescribedAnalyses.map {
+                            MedicineDraft(name = it, dosage = "", duration = "")
+                        }
+                        else -> emptyList()
                     }
                 }
                 prefilledFromScan = true
@@ -385,7 +393,7 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            FormSectionTitle("Médicaments prescrits")
+            FormSectionTitle("Médicaments ou analyses prescrits")
             medicines.forEachIndexed { index, draft ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -394,7 +402,7 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
                             onValueChange = { value ->
                                 medicines = medicines.toMutableList().also { list -> list[index] = draft.copy(name = value) }
                             },
-                            label = { Text("Médicament ${index + 1}") },
+                            label = { Text("Médicament / analyse ${index + 1}") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )

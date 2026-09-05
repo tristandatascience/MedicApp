@@ -16,6 +16,11 @@ object OcrFieldParser {
         val times: List<LocalTime> = emptyList(),
         /** Paires (nom du médicament, dosage détecté). */
         val drugs: List<Pair<String, String?>> = emptyList(),
+        /**
+         * Lignes d'analyses ou d'examens prescrits (ordonnances de biologie,
+         * radiologie…), utiles quand il n'y a pas de médicaments dosés.
+         */
+        val prescribedAnalyses: List<String> = emptyList(),
         val prescriber: String? = null,
         val laboratory: String? = null,
         val vaccineName: String? = null,
@@ -148,10 +153,22 @@ object OcrFieldParser {
 
         val examCategory = EXAM_KEYWORDS.firstOrNull { (_, regex) -> regex.containsMatchIn(text) }?.first
 
+        // Lignes d'analyses/examens prescrits : une ordonnance de biologie ou
+        // de radiologie liste des actes, pas des médicaments dosés.
+        val prescribedAnalyses = text.lineSequence()
+            .map { it.trim() }
+            .filter { it.length in 3..90 }
+            .filter { line -> EXAM_KEYWORDS.any { (_, regex) -> regex.containsMatchIn(line) } }
+            .filter { it != laboratory }
+            .distinctBy { it.lowercase() }
+            .take(10)
+            .toList()
+
         return ParsedFields(
             dates = dates,
             times = times,
             drugs = drugs,
+            prescribedAnalyses = prescribedAnalyses,
             prescriber = prescriber,
             laboratory = laboratory,
             vaccineName = vaccine?.first,

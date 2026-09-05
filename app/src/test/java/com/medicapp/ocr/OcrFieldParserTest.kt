@@ -84,6 +84,25 @@ class OcrFieldParserTest {
     }
 
     @Test
+    fun `lignes d'analyses prescrites reconnues (ordonnance de biologie)`() {
+        val parsed = OcrFieldParser.parse(
+            """
+            Dr. Paul Martin
+            Ordonnance de biologie du 12/03/2025
+            NFS plaquettes
+            Glycémie à jeun
+            Bilan lipidique complet
+            Ionogramme sanguin
+            """.trimIndent()
+        )
+        assertEquals("Dr. Paul Martin", parsed.prescriber)
+        assertTrue(LocalDate.of(2025, 3, 12) in parsed.dates)
+        assertEquals(4, parsed.prescribedAnalyses.size)
+        assertTrue(parsed.prescribedAnalyses.any { it.contains("Glycémie") })
+        assertTrue(parsed.prescribedAnalyses.any { it.contains("Bilan lipidique") })
+    }
+
+    @Test
     fun `texte vide ne produit rien`() {
         val parsed = OcrFieldParser.parse("   ")
         assertNull(parsed.prescriber)
