@@ -1,7 +1,6 @@
 package com.medicapp.scan
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -59,13 +58,24 @@ import kotlin.math.sqrt
 @Composable
 fun CropScreen(
     jpegBytes: ByteArray,
-    onValidate: (ByteArray) -> Unit,
+    onValidate: (storedJpeg: ByteArray, ocrJpeg: ByteArray) -> Unit,
     onSkip: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val bitmap = remember(jpegBytes) {
-        BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+    // Résolution plafonnée : suffisante pour l'OCR et le PDF, évite les OOM.
+    val decoded = remember(jpegBytes) { ScanPipeline.decodeCapped(jpegBytes, 2600) }
+    if (decoded == null) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Image illisible.", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onCancel) { Text("Reprendre la photo") }
+        }
+        return
     }
+    val bitmap = decoded
     val imageBitmap: ImageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
     val scope = rememberCoroutineScope()
 
@@ -180,9 +190,12 @@ fun CropScreen(
                         val currentCorners = corners
                         scope.launch(Dispatchers.Default) {
                             val cropped = ScanPipeline.perspectiveCrop(bitmap, currentCorners)
-                            val finalBitmap = if (enhance) ScanPipeline.enhanceContrast(cropped) else cropped
-                            val jpeg = ScanPipeline.toJpeg(finalBitmap)
-                            withContext(Dispatchers.Main) { onValidate(jpeg) }
+                            // Version stockée (contraste renforcé si demandé) et
+                            // version brute conservée pour l'OCR.
+                            val stored = if (enhance) ScanPipeline.enhanceContrast(cropped) else cropped
+                            val storedJpeg = ScanPipeline.toJpeg(stored, 90)
+                            val ocrJpeg = if (stored === cropped) storedJpeg else ScanPipeline.toJpeg(cropped, 92)
+                            withContext(Dispatchers.Main) { onValidate(storedJpeg, ocrJpeg) }
                         }
                     },
                     modifier = Modifier.weight(1f),

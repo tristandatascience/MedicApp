@@ -128,8 +128,8 @@ fun ScanFlowScreen(
         cropInput != null -> {
             CropScreen(
                 jpegBytes = cropInput!!,
-                onValidate = { jpeg ->
-                    vm.addPage(jpeg)
+                onValidate = { storedJpeg, ocrJpeg ->
+                    vm.addPage(storedJpeg, ocrJpeg)
                     cropInput = null
                 },
                 onSkip = {
@@ -202,7 +202,10 @@ private fun CameraScreen(
     val scope = rememberCoroutineScope()
     val imageCapture = remember {
         ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            // Qualité maximale du capteur : indispensable pour les petits textes
+            // des ordonnances (le mode latence plafonne vers 1080p).
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setJpegQuality(95)
             .build()
     }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -252,6 +255,9 @@ private fun CameraScreen(
                 preview,
                 imageCapture,
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Annulation normale (navigation hors de l'écran) : pas une erreur.
+            throw e
         } catch (e: Exception) {
             android.widget.Toast.makeText(
                 context,
@@ -379,16 +385,16 @@ private fun CameraScreen(
     }
 }
 
-/** Décode, redresse selon la rotation CameraX et ré-encode en JPEG normalisé. */
+/** Décode (résolution plafonnée), redresse selon la rotation CameraX et ré-encode. */
 private fun normalizeJpeg(bytes: ByteArray, rotationDegrees: Int): ByteArray {
-    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
+    val bitmap = ScanPipeline.decodeCapped(bytes, 3200) ?: return bytes
     val rotated = if (rotationDegrees != 0) {
         val matrix = android.graphics.Matrix().apply { postRotate(rotationDegrees.toFloat()) }
         Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     } else bitmap
     if (rotated != bitmap) bitmap.recycle()
     val output = ByteArrayOutputStream()
-    rotated.compress(Bitmap.CompressFormat.JPEG, 92, output)
+    rotated.compress(Bitmap.CompressFormat.JPEG, 95, output)
     rotated.recycle()
     return output.toByteArray()
 }

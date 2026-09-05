@@ -21,7 +21,11 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
 
     data class ScanPage(
         val id: String = UUID.randomUUID().toString(),
+        /** Page telle que stockée (recadrée, éventuellement contraste renforcé). */
         val jpeg: ByteArray,
+        /** Version sans traitement pour l'OCR (le renforcement de contraste
+         *  peut dégrader les textes fins des ordonnances). */
+        val ocrJpeg: ByteArray = jpeg,
     )
 
     private val _pages = MutableStateFlow<List<ScanPage>>(emptyList())
@@ -39,8 +43,8 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
         _error.value = null
     }
 
-    fun addPage(jpeg: ByteArray) {
-        _pages.value = _pages.value + ScanPage(jpeg = jpeg)
+    fun addPage(jpeg: ByteArray, ocrJpeg: ByteArray = jpeg) {
+        _pages.value = _pages.value + ScanPage(jpeg = jpeg, ocrJpeg = ocrJpeg)
     }
 
     fun removePage(pageId: String) {
@@ -67,19 +71,26 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val profileId = container.settings.current().currentProfileId
                 val documentId = withContext(Dispatchers.IO) {
-                    val bitmaps = _pages.value.mapNotNull { ScanPipeline.decode(it.jpeg) }
+                    val bitmaps = _pages.value.mapNotNull { ScanPipeline.decodeCapped(it.jpeg, 2600) }
                     check(bitmaps.isNotEmpty()) {
                         "Aucune page exploitable n'a été capturée. Reprenez la photo."
                     }
                     val pdfBytes = ScanPipeline.buildPdf(bitmaps)
 
-                    // OCR page par page (modèle embarqué, hors ligne).
+                    // OCR page par page sur la version SANS traitement (modèle
+                    // embarqué, hors ligne) ; si le résultat est pauvre, seconde
+                    // tentative sur la version stockée et on garde la meilleure.
                     val ocrText = StringBuilder()
-                    bitmaps.forEachIndexed { index, bitmap ->
-                        val text = ocrEngine.recognize(bitmap)
-                        if (bitmaps.size > 1) ocrText.append("=== Page ${index + 1} ===\n")
-                        ocrText.append(text.trim())
-                        if (index < bitmaps.size - 1) ocrText.append("\n\n")
+                    _pages.value.forEachIndexed { index, page ->
+                        val plain = ScanPipeline.decodeCapped(page.ocrJpeg, 2600)
+                        var text = plain?.let { ocrEngine.recognize(it).trim() } ?: ""
+                        if (text.length < MIN_GOOD_OCR_CHARS && plain != bitmaps.getOrNull(index)) {
+                            val alt = ocrEngine.recognize(bitmaps[index]).trim()
+                            if (alt.length > text.length) text = alt
+                        }
+                        if (_pages.value.size > 1) ocrText.append("=== Page ${index + 1} ===\n")
+                        ocrText.append(text)
+                        if (index < _pages.value.size - 1) ocrText.append("\n\n")
                     }
 
                     container.documentRepository.create(
@@ -160,5 +171,8 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
 
     companion object {
         private const val TAG = "ScanViewModel"
+
+        /** En dessous, l'OCR est considéré pauvre : on tente la variante stockée. */
+        private const val MIN_GOOD_OCR_CHARS = 120
     }
 }

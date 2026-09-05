@@ -84,7 +84,7 @@ object OcrFieldParser {
 
     private val EXAM_KEYWORDS = listOf(
         ExamCategory.BLOOD_TEST to Regex(
-            """(?i)\b(glycémie|glycemie|hémogramme|hemogramme|NFS|bilan sanguin|cholestérol|cholesterol|CRP|TSH|créatinine|creatinine|ferritine|sérologie|serologie|hémoglobine|hemoglobine|plaquettes|leucocytes|analyse sanguin)"""
+            """(?i)\b(glycémie|glycemie|hémogramme|hemogramme|NFS|bilan sanguin|bilan lipidique|ionogramme|cholestérol|cholesterol|CRP|TSH|créatinine|creatinine|ferritine|sérologie|serologie|hémoglobine|hemoglobine|plaquettes|leucocytes|transaminases|TGO|TGP|Gamma ?GT|urée|uree|acide urique|VS|PSA|facteur rhumatoïde|rhumatoide|TP ?INR|TCA|D[- ]dimères|dimers|frottis|ECBU|hémoculture|hemoculture|vitamine D|bilirubine|analyse sanguin)"""
         ),
         ExamCategory.RADIOLOGY to Regex(
             """(?i)\b(radiograph|radio thorax|rayons? ?x|mammograph|ost[ée]odensitom|densitom[ée]trie)"""

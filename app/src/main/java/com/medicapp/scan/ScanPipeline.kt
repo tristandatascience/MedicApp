@@ -15,6 +15,28 @@ object ScanPipeline {
 
     fun decode(bytes: ByteArray): Bitmap? = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 
+    /**
+     * Décode en limitant la plus grande dimension : suffisant pour l'OCR
+     * (~2600 px ≈ 300 dpi sur un A4) tout en évitant les saturations mémoire
+     * des photos 12-48 Mpx.
+     */
+    fun decodeCapped(bytes: ByteArray, maxDim: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= maxDim) {
+            sampleSize *= 2
+        }
+        if (sampleSize == 1) return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        return BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize },
+        )
+    }
+
     /** Applique la rotation EXIF (degrés multiples de 90). */
     fun rotate(bitmap: Bitmap, degrees: Float): Bitmap {
         if (degrees == 0f) return bitmap
