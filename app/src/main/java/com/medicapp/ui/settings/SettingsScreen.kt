@@ -98,10 +98,10 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /** Recherche ponctuelle de mise à jour (requête anonyme vers GitHub). */
-    fun checkUpdate(onResult: (com.medicapp.updates.UpdateChecker.ReleaseInfo?) -> Unit) {
+    fun checkUpdate(onResult: (info: com.medicapp.updates.UpdateChecker.ReleaseInfo?, error: String?) -> Unit) {
         viewModelScope.launch {
-            val info = com.medicapp.updates.UpdateChecker.fetchLatest()
-            withContext(Dispatchers.Main) { onResult(info) }
+            val outcome = com.medicapp.updates.UpdateChecker.checkForUpdate()
+            withContext(Dispatchers.Main) { onResult(outcome.info, outcome.error) }
         }
     }
 
@@ -273,14 +273,15 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                     updateChecking = true
                     updateUpToDate = false
                     updateError = null
-                    vm.checkUpdate { info ->
+                    vm.checkUpdate { info, error ->
                         updateChecking = false
                         when {
-                            info == null -> updateError =
-                                "Impossible de joindre GitHub. Vérifiez votre connexion Internet."
-                            com.medicapp.updates.UpdateChecker.isNewer(currentVersion, info.versionName) ->
-                                updateRelease = info
-                            else -> updateUpToDate = true
+                            info != null && com.medicapp.updates.UpdateChecker.isNewer(
+                                currentVersion, info.versionName
+                            ) -> updateRelease = info
+                            info != null -> updateUpToDate = true
+                            else -> updateError =
+                                "Impossible de joindre GitHub.\nDétail technique : $error"
                         }
                     }
                 },

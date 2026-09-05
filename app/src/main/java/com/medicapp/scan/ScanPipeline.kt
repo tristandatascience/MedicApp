@@ -97,6 +97,29 @@ object ScanPipeline {
         return output
     }
 
+    /**
+     * Filtre « tampon » : isole l'encre bleue/violette (tampons des médecins,
+     * pharmacie, laboratoires) en noir sur blanc — révèle des textes que la
+     * lecture normale ne voit pas.
+     */
+    fun stampFilter(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        val pixels = IntArray(width * height)
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (index in pixels.indices) {
+            val pixel = pixels[index]
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            val blueOrPurpleInk = b > r + 25 && b >= g
+            pixels[index] = if (blueOrPurpleInk) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+        }
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        output.setPixels(pixels, 0, width, 0, 0, width, height)
+        return output
+    }
+
     fun toJpeg(bitmap: Bitmap, quality: Int = 90): ByteArray {
         val baos = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)

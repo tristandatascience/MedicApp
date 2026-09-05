@@ -77,17 +77,13 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
                     }
                     val pdfBytes = ScanPipeline.buildPdf(bitmaps)
 
-                    // OCR page par page sur la version SANS traitement (modèle
-                    // embarqué, hors ligne) ; si le résultat est pauvre, seconde
-                    // tentative sur la version stockée et on garde la meilleure.
+                    // OCR multi-passes par page (modèle embarqué, hors ligne) :
+                    // 1) texte brut, 2) contraste renforcé, 3) filtre « tampon »
+                    // bleu, 4-6) rotations 90/180/270 (tampons inclinés) ;
+                    // toutes les lignes reconnues sont fusionnées.
                     val ocrText = StringBuilder()
                     _pages.value.forEachIndexed { index, page ->
-                        val plain = ScanPipeline.decodeCapped(page.ocrJpeg, 2600)
-                        var text = plain?.let { ocrEngine.recognize(it).trim() } ?: ""
-                        if (text.length < MIN_GOOD_OCR_CHARS && plain != bitmaps.getOrNull(index)) {
-                            val alt = ocrEngine.recognize(bitmaps[index]).trim()
-                            if (alt.length > text.length) text = alt
-                        }
+                        val text = runCatching { ocrPage(page) }.getOrDefault("")
                         if (_pages.value.size > 1) ocrText.append("=== Page ${index + 1} ===\n")
                         ocrText.append(text)
                         if (index < _pages.value.size - 1) ocrText.append("\n\n")
@@ -150,6 +146,36 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * OCR multi-passes d'une page : brut, contraste, filtre tampon bleu et
+     * rotations. Les lignes uniques de toutes les passes sont fusionnées —
+     * les tampons inclinés et les textes pâles ressortent mieux.
+     */
+    private suspend fun ocrPage(page: ScanPage): String {
+        val base = ScanPipeline.decodeCapped(page.ocrJpeg, 2600) ?: return ""
+        val passes = mutableListOf<String>()
+
+        passes += ocrEngine.recognize(base)
+        val contrasted = ScanPipeline.enhanceContrast(base)
+        passes += ocrEngine.recognize(contrasted)
+        contrasted.recycle()
+        val stamped = ScanPipeline.stampFilter(base)
+        passes += ocrEngine.recognize(stamped)
+        stamped.recycle()
+        for (angle in listOf(90f, 180f, 270f)) {
+            val rotated = ScanPipeline.rotate(base, angle)
+            passes += ocrEngine.recognize(rotated)
+            rotated.recycle()
+        }
+
+        // Fusion : lignes dédupliquées (insensible à la casse), ordre d'apparition.
+        val seen = LinkedHashSet<String>()
+        passes.flatMap { text ->
+            text.lineSequence().map { it.trim() }.filter { it.length >= 3 }
+        }.forEach { line -> seen.add(line) }
+        return seen.take(MAX_OCR_LINES).joinToString("\n")
+    }
+
     private fun countPdfPages(bytes: ByteArray): Int {
         val temp = java.io.File.createTempFile("medic-import", ".pdf")
         return try {
@@ -172,7 +198,7 @@ class ScanViewModel(private val container: AppContainer) : ViewModel() {
     companion object {
         private const val TAG = "ScanViewModel"
 
-        /** En dessous, l'OCR est considéré pauvre : on tente la variante stockée. */
-        private const val MIN_GOOD_OCR_CHARS = 120
+        /** Plafond de lignes OCR fusionnées par page. */
+        private const val MAX_OCR_LINES = 200
     }
 }
