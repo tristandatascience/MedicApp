@@ -1,0 +1,28 @@
+# Chaîne d'outils locale (JDK, SDK Android, Gradle) — non versionnée
+tools/
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+.navigation/
+
+# Local
+local.properties
+
+# Kotlin
+.kotlin/
+
+# Journaux de build locaux
+build_*.log
+*.log
+
+# Session ZCode
+.zcode/

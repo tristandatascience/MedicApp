@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Croix médicale (silhouette de notification monochrome) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,3 h6 a1,1 0 0 1 1,1 v4 h4 a1,1 0 0 1 1,1 v6 a1,1 0 0 1 -1,1 h-4 v4 a1,1 0 0 1 -1,1 h-6 a1,1 0 0 1 -1,-1 v-4 h-4 a1,1 0 0 1 -1,-1 v-6 a1,1 0 0 1 1,-1 h4 v-4 a1,1 0 0 1 1,-1 z" />
+</vector>
