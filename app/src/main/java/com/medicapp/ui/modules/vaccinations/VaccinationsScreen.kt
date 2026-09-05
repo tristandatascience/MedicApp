@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +54,7 @@ import com.medicapp.di.AppContainer
 import com.medicapp.ui.common.DateField
 import com.medicapp.ui.common.DetailRow
 import com.medicapp.ui.common.Format
+import com.medicapp.ui.common.ScanPrefillBanner
 import com.medicapp.ui.common.containerViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -89,11 +92,20 @@ class VaccinationsViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun get(id: Long): Vaccination? = container.vaccinationRepository.getById(id)
 
+    suspend fun getDocument(id: Long) = container.documentRepository.getById(id)
+
     suspend fun currentProfileId(): Long = container.settings.current().currentProfileId
 
-    fun save(vaccination: Vaccination, onDone: () -> Unit) {
+    fun save(vaccination: Vaccination, attachDocumentId: Long? = null, onDone: () -> Unit) {
         viewModelScope.launch {
-            container.vaccinationRepository.upsert(vaccination)
+            val id = container.vaccinationRepository.upsert(vaccination)
+            attachDocumentId?.let {
+                container.documentRepository.reassign(
+                    it,
+                    com.medicapp.data.db.entity.DocumentOwner.VACCINATION,
+                    id,
+                )
+            }
             onDone()
         }
     }
@@ -108,6 +120,7 @@ class VaccinationsViewModel(private val container: AppContainer) : ViewModel() {
 fun VaccinationsScreen(
     onOpenDetail: (Long) -> Unit = {},
     onOpenForm: (Long) -> Unit = {},
+    onScan: () -> Unit = {},
 ) {
     val vm: VaccinationsViewModel = containerViewModel { VaccinationsViewModel(it) }
     val list by vm.list.collectAsState()
@@ -119,7 +132,19 @@ fun VaccinationsScreen(
     } else list
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Vaccinations") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Vaccinations") },
+                actions = {
+                    IconButton(onClick = onScan) {
+                        Icon(
+                            Icons.Outlined.DocumentScanner,
+                            contentDescription = "Numériser le carnet de vaccination",
+                        )
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { onOpenForm(-1L) }) {
                 Icon(Icons.Outlined.Add, contentDescription = "Ajouter une vaccination")
@@ -281,6 +306,7 @@ fun VaccinationDetailScreen(
 @Composable
 fun VaccinationFormScreen(
     id: Long,
+    scanDocumentId: Long? = null,
     onBack: () -> Unit,
 ) {
     val vm: VaccinationsViewModel = containerViewModel { VaccinationsViewModel(it) }
@@ -322,6 +348,23 @@ fun VaccinationFormScreen(
     val filteredSuggestions = FRENCH_VACCINE_SUGGESTIONS.filter {
         it.first.contains(vaccineName.trim(), ignoreCase = true) && vaccineName.isNotBlank()
     }
+    var prefilledFromScan by remember { mutableStateOf(false) }
+
+    // Pré-remplissage depuis le document numérisé (validation manuelle, § 4.2).
+    LaunchedEffect(scanDocumentId) {
+        if (scanDocumentId != null && id <= 0) {
+            val doc = vm.getDocument(scanDocumentId)
+            val text = doc?.ocrText
+            if (!text.isNullOrBlank()) {
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                parsed.vaccineName?.let { if (vaccineName.isBlank()) vaccineName = it }
+                parsed.disease?.let { if (disease.isBlank()) disease = it }
+                parsed.mostLikelyDate?.let { if (injectionDate == null) injectionDate = it }
+                parsed.prescriber?.let { if (provider.isBlank()) provider = it }
+                prefilledFromScan = true
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -343,6 +386,9 @@ fun VaccinationFormScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (prefilledFromScan) {
+                ScanPrefillBanner()
+            }
             ExposedDropdownMenuBox(
                 expanded = suggestionsExpanded && filteredSuggestions.isNotEmpty(),
                 onExpandedChange = { suggestionsExpanded = it },
@@ -417,6 +463,7 @@ fun VaccinationFormScreen(
                             notes = notes.trim().ifBlank { null },
                             createdAt = v?.createdAt ?: java.time.LocalDateTime.now(),
                         ),
+                        attachDocumentId = scanDocumentId,
                         onDone = onBack,
                     )
                 },

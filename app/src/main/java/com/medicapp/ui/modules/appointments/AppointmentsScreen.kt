@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material3.AlertDialog
@@ -94,11 +95,20 @@ class AppointmentsViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun get(id: Long): Appointment? = container.appointmentRepository.getById(id)
 
+    suspend fun getDocument(id: Long) = container.documentRepository.getById(id)
+
     suspend fun currentProfileId(): Long = container.settings.current().currentProfileId
 
-    fun save(appointment: Appointment, onDone: () -> Unit) {
+    fun save(appointment: Appointment, attachDocumentId: Long? = null, onDone: () -> Unit) {
         viewModelScope.launch {
-            container.appointmentRepository.upsert(appointment)
+            val id = container.appointmentRepository.upsert(appointment)
+            attachDocumentId?.let {
+                container.documentRepository.reassign(
+                    it,
+                    com.medicapp.data.db.entity.DocumentOwner.APPOINTMENT,
+                    id,
+                )
+            }
             onDone()
         }
     }
@@ -113,6 +123,7 @@ class AppointmentsViewModel(private val container: AppContainer) : ViewModel() {
 fun AppointmentsScreen(
     onOpenDetail: (Long) -> Unit = {},
     onOpenForm: (Long) -> Unit = {},
+    onScan: () -> Unit = {},
 ) {
     val vm: AppointmentsViewModel = containerViewModel { AppointmentsViewModel(it) }
     val upcoming by vm.upcoming.collectAsState()
@@ -121,7 +132,19 @@ fun AppointmentsScreen(
     val list = if (showPast) past else upcoming
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Rendez-vous") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Rendez-vous") },
+                actions = {
+                    IconButton(onClick = onScan) {
+                        Icon(
+                            Icons.Outlined.DocumentScanner,
+                            contentDescription = "Numériser un document à apporter",
+                        )
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { onOpenForm(-1L) }) {
                 Icon(Icons.Outlined.Add, contentDescription = "Ajouter un rendez-vous")
@@ -285,7 +308,7 @@ private fun addPhoneCalendarEvent(context: Context, appointment: Appointment) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppointmentFormScreen(id: Long, onBack: () -> Unit) {
+fun AppointmentFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Unit) {
     val vm: AppointmentsViewModel = containerViewModel { AppointmentsViewModel(it) }
 
     var existing by remember { mutableStateOf<Appointment?>(null) }
@@ -300,6 +323,23 @@ fun AppointmentFormScreen(id: Long, onBack: () -> Unit) {
     var documentsToBring by rememberSaveable { mutableStateOf(listOf<String>()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var initialized by remember { mutableStateOf(false) }
+    var prefilledFromScan by remember { mutableStateOf(false) }
+
+    // Pré-remplissage depuis un document numérisé (convocation…), validation manuelle.
+    LaunchedEffect(scanDocumentId) {
+        if (scanDocumentId != null && id <= 0) {
+            val doc = vm.getDocument(scanDocumentId)
+            val text = doc?.ocrText
+            if (!text.isNullOrBlank()) {
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                parsed.mostLikelyDate?.let { if (date == null) date = it }
+                parsed.times.firstOrNull()?.let { if (time == null) time = it }
+                parsed.prescriber?.let { if (professional.isBlank()) professional = it }
+                parsed.laboratory?.let { if (establishment.isBlank()) establishment = it }
+                prefilledFromScan = true
+            }
+        }
+    }
 
     LaunchedEffect(id) {
         if (id > 0) existing = vm.get(id)
@@ -337,6 +377,9 @@ fun AppointmentFormScreen(id: Long, onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (prefilledFromScan) {
+                com.medicapp.ui.common.ScanPrefillBanner()
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DateField(label = "Date *", value = date, onChange = { date = it }, modifier = Modifier.weight(1f))
                 TimeField(label = "Heure *", value = time, onChange = { time = it }, modifier = Modifier.weight(1f))
@@ -415,6 +458,7 @@ fun AppointmentFormScreen(id: Long, onBack: () -> Unit) {
                             notes = notes.trim().ifBlank { null },
                             createdAt = a?.createdAt ?: LocalDateTime.now(),
                         ),
+                        attachDocumentId = scanDocumentId,
                         onDone = onBack,
                     )
                 },

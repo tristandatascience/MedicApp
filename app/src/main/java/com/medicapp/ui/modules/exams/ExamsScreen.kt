@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,11 +71,20 @@ class ExamsViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun get(id: Long): Exam? = container.examRepository.getById(id)
 
+    suspend fun getDocument(id: Long) = container.documentRepository.getById(id)
+
     suspend fun currentProfileId(): Long = container.settings.current().currentProfileId
 
-    fun save(exam: Exam, onDone: () -> Unit) {
+    fun save(exam: Exam, attachDocumentId: Long? = null, onDone: () -> Unit) {
         viewModelScope.launch {
-            container.examRepository.upsert(exam)
+            val id = container.examRepository.upsert(exam)
+            attachDocumentId?.let {
+                container.documentRepository.reassign(
+                    it,
+                    com.medicapp.data.db.entity.DocumentOwner.EXAM,
+                    id,
+                )
+            }
             onDone()
         }
     }
@@ -97,6 +107,7 @@ fun examCategoryLabel(category: ExamCategory): String = when (category) {
 fun ExamsScreen(
     onOpenDetail: (Long) -> Unit = {},
     onOpenForm: (Long) -> Unit = {},
+    onScan: () -> Unit = {},
 ) {
     val vm: ExamsViewModel = containerViewModel { ExamsViewModel(it) }
     val list by vm.list.collectAsState()
@@ -105,7 +116,19 @@ fun ExamsScreen(
     val filtered = if (categoryFilter == null) list else list.filter { it.category == categoryFilter }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Résultats d'examens") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Résultats d'examens") },
+                actions = {
+                    IconButton(onClick = onScan) {
+                        Icon(
+                            Icons.Outlined.DocumentScanner,
+                            contentDescription = "Numériser un résultat d'examen",
+                        )
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { onOpenForm(-1L) }) {
                 Icon(Icons.Outlined.Add, contentDescription = "Ajouter un examen")
@@ -236,7 +259,7 @@ fun ExamDetailScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExamFormScreen(id: Long, onBack: () -> Unit) {
+fun ExamFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Unit) {
     val vm: ExamsViewModel = containerViewModel { ExamsViewModel(it) }
 
     var existing by remember { mutableStateOf<Exam?>(null) }
@@ -248,6 +271,24 @@ fun ExamFormScreen(id: Long, onBack: () -> Unit) {
     var prescriber by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var initialized by remember { mutableStateOf(false) }
+    var prefilledFromScan by remember { mutableStateOf(false) }
+
+    // Pré-remplissage depuis le résultat numérisé (validation manuelle, § 4.5 :
+    // l'OCR sert à l'indexation, aucune valeur n'est interprétée).
+    LaunchedEffect(scanDocumentId) {
+        if (scanDocumentId != null && id <= 0) {
+            val doc = vm.getDocument(scanDocumentId)
+            val text = doc?.ocrText
+            if (!text.isNullOrBlank()) {
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                parsed.examCategory?.let { category = it }
+                parsed.mostLikelyDate?.let { if (examDate == null) examDate = it }
+                parsed.laboratory?.let { if (laboratory.isBlank()) laboratory = it }
+                parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
+                prefilledFromScan = true
+            }
+        }
+    }
 
     LaunchedEffect(id) {
         if (id > 0) existing = vm.get(id)
@@ -282,6 +323,9 @@ fun ExamFormScreen(id: Long, onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (prefilledFromScan) {
+                com.medicapp.ui.common.ScanPrefillBanner()
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -336,6 +380,7 @@ fun ExamFormScreen(id: Long, onBack: () -> Unit) {
                             notes = notes.trim().ifBlank { null },
                             createdAt = e?.createdAt ?: LocalDateTime.now(),
                         ),
+                        attachDocumentId = scanDocumentId,
                         onDone = onBack,
                     )
                 },

@@ -70,6 +70,15 @@ class DocumentRepository(
     suspend fun updateTitle(id: Long, title: String) =
         dao.updateTitle(id, title.trim(), System.currentTimeMillis())
 
+    /** Attache un document (issu d'un scan) à une fiche nouvellement créée. */
+    suspend fun reassign(id: Long, owner: DocumentOwner, ownerId: Long) {
+        dao.getById(id)?.let { doc ->
+            dao.update(
+                doc.copy(ownerType = owner, ownerId = ownerId, updatedAt = LocalDateTime.now())
+            )
+        }
+    }
+
     suspend fun open(storageKey: String): ByteArray = withContext(Dispatchers.IO) { store.open(storageKey) }
 
     suspend fun delete(id: Long) = withContext(Dispatchers.IO) {

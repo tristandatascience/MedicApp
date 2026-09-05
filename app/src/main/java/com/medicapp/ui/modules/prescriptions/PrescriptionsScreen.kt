@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,11 +71,25 @@ class PrescriptionsViewModel(private val container: AppContainer) : ViewModel() 
 
     suspend fun get(id: Long): PrescriptionWithMedicines? = container.prescriptionRepository.getById(id)
 
+    suspend fun getDocument(id: Long) = container.documentRepository.getById(id)
+
     suspend fun currentProfileId(): Long = container.settings.current().currentProfileId
 
-    fun save(prescription: Prescription, medicines: List<PrescriptionMedicine>, onDone: () -> Unit) {
+    fun save(
+        prescription: Prescription,
+        medicines: List<PrescriptionMedicine>,
+        attachDocumentId: Long? = null,
+        onDone: () -> Unit,
+    ) {
         viewModelScope.launch {
-            container.prescriptionRepository.save(prescription, medicines)
+            val id = container.prescriptionRepository.save(prescription, medicines)
+            attachDocumentId?.let {
+                container.documentRepository.reassign(
+                    it,
+                    com.medicapp.data.db.entity.DocumentOwner.PRESCRIPTION,
+                    id,
+                )
+            }
             onDone()
         }
     }
@@ -89,13 +104,26 @@ class PrescriptionsViewModel(private val container: AppContainer) : ViewModel() 
 fun PrescriptionsScreen(
     onOpenDetail: (Long) -> Unit = {},
     onOpenForm: (Long) -> Unit = {},
+    onScan: () -> Unit = {},
 ) {
     val vm: PrescriptionsViewModel = containerViewModel { PrescriptionsViewModel(it) }
     val list by vm.list.collectAsState()
     val today = remember { LocalDate.now() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Ordonnances") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Ordonnances") },
+                actions = {
+                    IconButton(onClick = onScan) {
+                        Icon(
+                            Icons.Outlined.DocumentScanner,
+                            contentDescription = "Numériser une ordonnance",
+                        )
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { onOpenForm(-1L) }) {
                 Icon(Icons.Outlined.Add, contentDescription = "Ajouter une ordonnance")
@@ -259,7 +287,7 @@ private data class MedicineDraft(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PrescriptionFormScreen(id: Long, onBack: () -> Unit) {
+fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Unit) {
     val vm: PrescriptionsViewModel = containerViewModel { PrescriptionsViewModel(it) }
 
     var existing by remember { mutableStateOf<PrescriptionWithMedicines?>(null) }
@@ -271,6 +299,26 @@ fun PrescriptionFormScreen(id: Long, onBack: () -> Unit) {
     var notes by rememberSaveable { mutableStateOf("") }
     var medicines by rememberSaveable { mutableStateOf(listOf<MedicineDraft>()) }
     var initialized by remember { mutableStateOf(false) }
+    var prefilledFromScan by remember { mutableStateOf(false) }
+
+    // Pré-remplissage depuis l'ordonnance numérisée (validation manuelle, § 4.3).
+    LaunchedEffect(scanDocumentId) {
+        if (scanDocumentId != null && id <= 0) {
+            val doc = vm.getDocument(scanDocumentId)
+            val text = doc?.ocrText
+            if (!text.isNullOrBlank()) {
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                parsed.mostLikelyDate?.let { if (prescriptionDate == null) prescriptionDate = it }
+                parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
+                if (parsed.drugs.isNotEmpty() && medicines.isEmpty()) {
+                    medicines = parsed.drugs.map { (name, dosage) ->
+                        MedicineDraft(name = name, dosage = dosage ?: "", duration = "")
+                    }
+                }
+                prefilledFromScan = true
+            }
+        }
+    }
 
     LaunchedEffect(id) {
         if (id > 0) existing = vm.get(id)
@@ -308,6 +356,9 @@ fun PrescriptionFormScreen(id: Long, onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (prefilledFromScan) {
+                com.medicapp.ui.common.ScanPrefillBanner()
+            }
             DateField(label = "Date de prescription *", value = prescriptionDate, onChange = { prescriptionDate = it })
             OutlinedTextField(
                 value = prescriber,
@@ -408,6 +459,7 @@ fun PrescriptionFormScreen(id: Long, onBack: () -> Unit) {
                                     position = index,
                                 )
                             },
+                        attachDocumentId = scanDocumentId,
                         onDone = onBack,
                     )
                 },

@@ -57,31 +57,45 @@ object Routes {
     const val PROFILES = "profiles"
 
     const val VACCINATION_DETAIL = "vaccination/{id}"
-    const val VACCINATION_FORM = "vaccination-form/{id}"
+    const val VACCINATION_FORM = "vaccination-form/{id}?doc={doc}"
     const val TREATMENT_DETAIL = "treatment/{id}"
-    const val TREATMENT_FORM = "treatment-form/{id}"
+    const val TREATMENT_FORM = "treatment-form/{id}?doc={doc}"
     const val PRESCRIPTION_DETAIL = "prescription/{id}"
-    const val PRESCRIPTION_FORM = "prescription-form/{id}"
+    const val PRESCRIPTION_FORM = "prescription-form/{id}?doc={doc}"
     const val EXAM_DETAIL = "exam/{id}"
-    const val EXAM_FORM = "exam-form/{id}"
+    const val EXAM_FORM = "exam-form/{id}?doc={doc}"
     const val APPOINTMENT_DETAIL = "appointment/{id}"
-    const val APPOINTMENT_FORM = "appointment-form/{id}"
+    const val APPOINTMENT_FORM = "appointment-form/{id}?doc={doc}"
     const val SCAN = "scan/{ownerType}/{ownerId}"
     const val DOCUMENT = "document/{id}"
 
     fun vaccinationDetail(id: Long) = "vaccination/$id"
-    fun vaccinationForm(id: Long) = "vaccination-form/$id"
+    fun vaccinationForm(id: Long, doc: Long? = null) = formUrl("vaccination-form/$id", doc)
     fun treatmentDetail(id: Long) = "treatment/$id"
-    fun treatmentForm(id: Long) = "treatment-form/$id"
+    fun treatmentForm(id: Long, doc: Long? = null) = formUrl("treatment-form/$id", doc)
     fun prescriptionDetail(id: Long) = "prescription/$id"
-    fun prescriptionForm(id: Long) = "prescription-form/$id"
+    fun prescriptionForm(id: Long, doc: Long? = null) = formUrl("prescription-form/$id", doc)
     fun examDetail(id: Long) = "exam/$id"
-    fun examForm(id: Long) = "exam-form/$id"
+    fun examForm(id: Long, doc: Long? = null) = formUrl("exam-form/$id", doc)
     fun appointmentDetail(id: Long) = "appointment/$id"
-    fun appointmentForm(id: Long) = "appointment-form/$id"
+    fun appointmentForm(id: Long, doc: Long? = null) = formUrl("appointment-form/$id", doc)
     fun scan(owner: com.medicapp.data.db.entity.DocumentOwner, ownerId: Long?): String =
         "scan/${owner.name}/${ownerId ?: -1L}"
     fun document(id: Long) = "document/$id"
+
+    /** Route de création depuis un document scanné (fiche pré-remplie par OCR). */
+    fun formForScan(owner: com.medicapp.data.db.entity.DocumentOwner, docId: Long): String? =
+        when (owner) {
+            com.medicapp.data.db.entity.DocumentOwner.VACCINATION -> vaccinationForm(-1L, docId)
+            com.medicapp.data.db.entity.DocumentOwner.TREATMENT -> treatmentForm(-1L, docId)
+            com.medicapp.data.db.entity.DocumentOwner.PRESCRIPTION -> prescriptionForm(-1L, docId)
+            com.medicapp.data.db.entity.DocumentOwner.EXAM -> examForm(-1L, docId)
+            com.medicapp.data.db.entity.DocumentOwner.APPOINTMENT -> appointmentForm(-1L, docId)
+            com.medicapp.data.db.entity.DocumentOwner.STANDALONE -> null
+        }
+
+    private fun formUrl(base: String, doc: Long?): String =
+        if (doc != null && doc > 0) "$base?doc=$doc" else base
 }
 
 data class TopDestination(
@@ -101,6 +115,14 @@ val topDestinations = listOf(
 )
 
 private val idArgument = listOf(navArgument("id") { type = NavType.LongType })
+
+private val formArguments = listOf(
+    navArgument("id") { type = NavType.LongType },
+    navArgument("doc") {
+        type = NavType.LongType
+        defaultValue = -1L
+    },
+)
 
 @Composable
 fun MedicNavHost(
@@ -156,6 +178,7 @@ fun MedicNavHost(
                 VaccinationsScreen(
                     onOpenDetail = { navController.navigate(Routes.vaccinationDetail(it)) },
                     onOpenForm = { navController.navigate(Routes.vaccinationForm(it)) },
+                    onScan = { navController.navigate(Routes.scan(com.medicapp.data.db.entity.DocumentOwner.VACCINATION, null)) },
                 )
             }
             composable(Routes.VACCINATION_DETAIL, arguments = idArgument) { entry ->
@@ -168,8 +191,12 @@ fun MedicNavHost(
                     onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
-            composable(Routes.VACCINATION_FORM, arguments = idArgument) { entry ->
-                VaccinationFormScreen(id = entry.arguments?.getLong("id") ?: -1L, onBack = navigateUp)
+            composable(Routes.VACCINATION_FORM, arguments = formArguments) { entry ->
+                VaccinationFormScreen(
+                    id = entry.arguments?.getLong("id") ?: -1L,
+                    scanDocumentId = entry.arguments?.getLong("doc")?.takeIf { it > 0 },
+                    onBack = navigateUp,
+                )
             }
 
             // --- Traitements ---
@@ -177,6 +204,7 @@ fun MedicNavHost(
                 TreatmentsScreen(
                     onOpenDetail = { navController.navigate(Routes.treatmentDetail(it)) },
                     onOpenForm = { navController.navigate(Routes.treatmentForm(it)) },
+                    onScan = { navController.navigate(Routes.scan(com.medicapp.data.db.entity.DocumentOwner.TREATMENT, null)) },
                 )
             }
             composable(Routes.TREATMENT_DETAIL, arguments = idArgument) { entry ->
@@ -188,8 +216,12 @@ fun MedicNavHost(
                     onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
-            composable(Routes.TREATMENT_FORM, arguments = idArgument) { entry ->
-                TreatmentFormScreen(id = entry.arguments?.getLong("id") ?: -1L, onBack = navigateUp)
+            composable(Routes.TREATMENT_FORM, arguments = formArguments) { entry ->
+                TreatmentFormScreen(
+                    id = entry.arguments?.getLong("id") ?: -1L,
+                    scanDocumentId = entry.arguments?.getLong("doc")?.takeIf { it > 0 },
+                    onBack = navigateUp,
+                )
             }
 
             // --- Ordonnances ---
@@ -197,6 +229,7 @@ fun MedicNavHost(
                 PrescriptionsScreen(
                     onOpenDetail = { navController.navigate(Routes.prescriptionDetail(it)) },
                     onOpenForm = { navController.navigate(Routes.prescriptionForm(it)) },
+                    onScan = { navController.navigate(Routes.scan(com.medicapp.data.db.entity.DocumentOwner.PRESCRIPTION, null)) },
                 )
             }
             composable(Routes.PRESCRIPTION_DETAIL, arguments = idArgument) { entry ->
@@ -208,8 +241,12 @@ fun MedicNavHost(
                     onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
-            composable(Routes.PRESCRIPTION_FORM, arguments = idArgument) { entry ->
-                PrescriptionFormScreen(id = entry.arguments?.getLong("id") ?: -1L, onBack = navigateUp)
+            composable(Routes.PRESCRIPTION_FORM, arguments = formArguments) { entry ->
+                PrescriptionFormScreen(
+                    id = entry.arguments?.getLong("id") ?: -1L,
+                    scanDocumentId = entry.arguments?.getLong("doc")?.takeIf { it > 0 },
+                    onBack = navigateUp,
+                )
             }
 
             // --- Examens ---
@@ -217,6 +254,7 @@ fun MedicNavHost(
                 ExamsScreen(
                     onOpenDetail = { navController.navigate(Routes.examDetail(it)) },
                     onOpenForm = { navController.navigate(Routes.examForm(it)) },
+                    onScan = { navController.navigate(Routes.scan(com.medicapp.data.db.entity.DocumentOwner.EXAM, null)) },
                 )
             }
             composable(Routes.EXAM_DETAIL, arguments = idArgument) { entry ->
@@ -228,8 +266,12 @@ fun MedicNavHost(
                     onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
-            composable(Routes.EXAM_FORM, arguments = idArgument) { entry ->
-                ExamFormScreen(id = entry.arguments?.getLong("id") ?: -1L, onBack = navigateUp)
+            composable(Routes.EXAM_FORM, arguments = formArguments) { entry ->
+                ExamFormScreen(
+                    id = entry.arguments?.getLong("id") ?: -1L,
+                    scanDocumentId = entry.arguments?.getLong("doc")?.takeIf { it > 0 },
+                    onBack = navigateUp,
+                )
             }
 
             // --- Rendez-vous ---
@@ -237,6 +279,7 @@ fun MedicNavHost(
                 AppointmentsScreen(
                     onOpenDetail = { navController.navigate(Routes.appointmentDetail(it)) },
                     onOpenForm = { navController.navigate(Routes.appointmentForm(it)) },
+                    onScan = { navController.navigate(Routes.scan(com.medicapp.data.db.entity.DocumentOwner.APPOINTMENT, null)) },
                 )
             }
             composable(Routes.APPOINTMENT_DETAIL, arguments = idArgument) { entry ->
@@ -248,8 +291,12 @@ fun MedicNavHost(
                     onOpenDocument = { navController.navigate(Routes.document(it)) },
                 )
             }
-            composable(Routes.APPOINTMENT_FORM, arguments = idArgument) { entry ->
-                AppointmentFormScreen(id = entry.arguments?.getLong("id") ?: -1L, onBack = navigateUp)
+            composable(Routes.APPOINTMENT_FORM, arguments = formArguments) { entry ->
+                AppointmentFormScreen(
+                    id = entry.arguments?.getLong("id") ?: -1L,
+                    scanDocumentId = entry.arguments?.getLong("doc")?.takeIf { it > 0 },
+                    onBack = navigateUp,
+                )
             }
 
             composable(Routes.SEARCH) { SearchScreen(onBack = navigateUp) }
@@ -272,6 +319,14 @@ fun MedicNavHost(
                     ownerId = ownerId,
                     onDone = { documentId ->
                         navController.popBackStack()
+                        // Scan sans fiche d'origine : ouvrir le formulaire du module
+                        // pré-rempli à partir du texte OCR (validation manuelle).
+                        if (ownerId == null) {
+                            Routes.formForScan(owner, documentId)?.let { formRoute ->
+                                navController.navigate(formRoute)
+                                return@ScanFlowScreen
+                            }
+                        }
                         navController.navigate(Routes.document(documentId))
                     },
                     onCancel = { navController.popBackStack() },
