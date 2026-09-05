@@ -170,23 +170,9 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     // --- Moteur IA embarqué (optionnel, à la demande) ---
     val aiEngine = com.medicapp.ui.LocalAppContainer.current.gemmaEngine
     var aiInstalled by remember { mutableStateOf(aiEngine.isInstalled()) }
-    var aiDownloadId by remember { mutableStateOf<Long?>(null) }
     var showDeleteAi by remember { mutableStateOf(false) }
-
-    DisposableEffect(aiDownloadId) {
-        val receiver = aiDownloadId?.let { id ->
-            com.medicapp.updates.ApkInstaller.registerCompletionReceiver(context, id) {
-                val (ok, message) = aiEngine.downloadResult(id)
-                aiInstalled = ok
-                if (ok) {
-                    Toast.makeText(context, "Moteur IA installé", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Échec du téléchargement : $message", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-        onDispose { receiver?.let { context.unregisterReceiver(it) } }
-    }
+    val aiProgress by aiEngine.downloadProgress.collectAsState()
+    val aiError by aiEngine.downloadError.collectAsState()
     var aiImporting by remember { mutableStateOf(false) }
     val aiImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -204,6 +190,26 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
+    }
+
+    if (aiError != null) {
+        AlertDialog(
+            onDismissRequest = aiEngine::dismissDownloadError,
+            title = { Text("Téléchargement du moteur IA") },
+            text = { Text(aiError ?: "") },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiEngine.dismissDownloadError()
+                    vm.launchIo {
+                        val ok = aiEngine.downloadModel()
+                        withContext(Dispatchers.Main) { aiInstalled = aiEngine.isInstalled() || ok }
+                    }
+                }) { Text("Réessayer") }
+            },
+            dismissButton = {
+                TextButton(onClick = aiEngine::dismissDownloadError) { Text("Fermer") }
+            },
+        )
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -355,6 +361,25 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                     destructive = true,
                     onClick = { showDeleteAi = true },
                 )
+            } else if (aiProgress != null) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Text(
+                        "Téléchargement du moteur IA en cours : ${aiProgress} %",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        "≈ 2 Go — laissez l'application ouverte ; la reprise est automatique en cas d'interruption.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { (aiProgress ?: 0) / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = aiEngine::cancelDownload) { Text("Annuler") }
+                }
             } else {
                 val freeMb = context.getExternalFilesDir(null)?.usableSpace?.div(1024 * 1024) ?: 0L
                 SettingRow(
@@ -373,12 +398,15 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                             ).show()
                             return@SettingRow
                         }
-                        aiDownloadId = aiEngine.startDownload()
-                        Toast.makeText(
-                            context,
-                            "Téléchargement du moteur IA démarré — suivez la notification système",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        vm.launchIo {
+                            val ok = aiEngine.downloadModel()
+                            withContext(Dispatchers.Main) {
+                                aiInstalled = aiEngine.isInstalled() || ok
+                                if (aiEngine.isInstalled()) {
+                                    Toast.makeText(context, "Moteur IA installé", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
                     },
                 )
                 SettingRow(

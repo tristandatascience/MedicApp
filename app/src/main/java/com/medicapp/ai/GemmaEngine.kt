@@ -9,6 +9,8 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -33,50 +35,114 @@ class GemmaEngine(private val context: Context) {
 
     fun installedSizeMb(): Long = if (isInstalled()) modelFile().length() / (1024 * 1024) else 0L
 
-    /** Lance le téléchargement du modèle ; retourne l'identifiant DownloadManager. */
-    fun startDownload(): Long {
-        val request = android.app.DownloadManager.Request(Uri.parse(MODEL_URL))
-            .setTitle("Moteur IA — Dossier Médical")
-            .setDescription("Gemma 3n E2B (≈ 2 Go)")
-            .setDestinationInExternalFilesDir(
-                context,
-                android.os.Environment.DIRECTORY_DOWNLOADS,
-                "$MODELS_DIR/$MODEL_FILE_NAME",
-            )
-            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(false)
-        // Certains CDN rejettent les requêtes sans User-Agent explicite.
-        request.addRequestHeader("User-Agent", "Mozilla/5.0 (Android; DossierMedical)")
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-        return manager.enqueue(request)
+    // ------------------------------------------------------------------
+    // Téléchargement intégré (sans dépendre du navigateur ni du
+    // DownloadManager) : progression observable et reprise sur interruption.
+    // ------------------------------------------------------------------
+
+    /** null = pas de téléchargement en cours ; sinon pourcentage 0..100. */
+    private val _downloadProgress = MutableStateFlow<Int?>(null)
+    val downloadProgress: StateFlow<Int?> = _downloadProgress
+
+    private val _downloadError = MutableStateFlow<String?>(null)
+    val downloadError: StateFlow<String?> = _downloadError
+
+    @Volatile
+    private var cancelRequested = false
+
+    fun cancelDownload() {
+        cancelRequested = true
     }
 
-    /** Après ACTION_DOWNLOAD_COMPLETE : succès ou motif d'échec lisible. */
-    fun downloadResult(downloadId: Long): Pair<Boolean, String> {
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-        val cursor = manager.query(android.app.DownloadManager.Query().setFilterById(downloadId))
-        cursor.use {
-            if (!it.moveToFirst()) return false to "téléchargement introuvable"
-            val status = it.getInt(it.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS))
-            if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) return true to ""
-            if (status == android.app.DownloadManager.STATUS_PAUSED) {
-                return false to "en pause (réseau ou stockage en attente)"
-            }
-            val reason = it.getInt(it.getColumnIndex(android.app.DownloadManager.COLUMN_REASON))
-            val message = when (reason) {
-                android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE ->
-                    "espace insuffisant — environ 2,5 Go libres requis"
-                android.app.DownloadManager.ERROR_FILE_ERROR -> "erreur d'écriture du fichier"
-                android.app.DownloadManager.ERROR_UNHANDLED_HTTP_CODE, android.app.DownloadManager.ERROR_HTTP_DATA_ERROR ->
-                    "erreur réseau/HTTP pendant le transfert (code $reason) — réessayez, ou importez le fichier manuellement"
-                android.app.DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "trop de redirections vers le serveur du modèle"
-                android.app.DownloadManager.ERROR_DEVICE_NOT_FOUND -> "stockage externe indisponible"
-                android.app.DownloadManager.ERROR_CANNOT_RESUME -> "téléchargement interrompu, impossible de reprendre"
-                else -> "échec (raison $reason)"
-            }
-            return false to message
+    fun dismissDownloadError() {
+        _downloadError.value = null
+    }
+
+    /**
+     * Télécharge le modèle (~2 Go) directement dans l'application.
+     * Reprend automatiquement un téléchargement partiel (en-tête Range).
+     */
+    suspend fun downloadModel(): Boolean = withContext(Dispatchers.IO) {
+        cancelRequested = false
+        _downloadProgress.value = 0
+        try {
+            val target = modelFile()
+            target.parentFile?.mkdirs()
+            val complete = performDownload(MODEL_URL, target)
+            _downloadProgress.value = 100
+            complete
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _downloadError.value = "Échec du téléchargement : " +
+                (e.message ?: e.javaClass.simpleName) +
+                " — la reprise sera proposée au prochain essai."
+            false
+        } finally {
+            _downloadProgress.value = null
         }
+    }
+
+    private fun performDownload(url: String, target: File): Boolean {
+        var resumeFrom = if (target.exists()) target.length() else 0L
+        var connection = openConnection(url, resumeFrom)
+
+        // Reprise refusée (416 = déjà complet ou range non géré) : on repart de zéro.
+        if (connection.responseCode == 416) {
+            if (isInstalled()) return true
+            resumeFrom = 0L
+            connection.disconnect()
+            connection = openConnection(url, 0L)
+        }
+
+        val code = connection.responseCode
+        if (code != 200 && code != 206) {
+            connection.disconnect()
+            throw IllegalStateException("le serveur a répondu HTTP $code")
+        }
+
+        val appending = code == 206 && resumeFrom > 0
+        if (!appending) resumeFrom = 0L
+        val declaredTotal = connection.contentLengthLong
+        val total = if (declaredTotal > 0) declaredTotal + resumeFrom else -1L
+
+        connection.inputStream.buffered().use { input ->
+            java.io.FileOutputStream(target, appending).use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var read: Int
+                var lastPercent = -1
+                while (input.read(buffer).also { read = it } >= 0) {
+                    if (cancelRequested) {
+                        output.flush()
+                        return false
+                    }
+                    output.write(buffer, 0, read)
+                    resumeFrom += read
+                    if (total > 0) {
+                        val percent = ((resumeFrom * 100) / total).toInt()
+                        if (percent != lastPercent) {
+                            lastPercent = percent
+                            _downloadProgress.value = percent.coerceIn(0, 100)
+                        }
+                    }
+                }
+                output.flush()
+            }
+        }
+        connection.disconnect()
+        return target.length() > MIN_MODEL_BYTES
+    }
+
+    private fun openConnection(url: String, resumeFrom: Long): java.net.HttpURLConnection {
+        val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; DossierMedical)")
+        if (resumeFrom > 0) {
+            connection.setRequestProperty("Range", "bytes=$resumeFrom-")
+        }
+        return connection
     }
 
     /** Copie un modèle déjà téléchargé (navigateur…) vers l'emplacement de l'application. */
