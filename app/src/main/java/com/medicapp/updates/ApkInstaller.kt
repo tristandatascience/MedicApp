@@ -32,10 +32,15 @@ object ApkInstaller {
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("Mise à jour — Dossier Médical")
             .setDescription("Téléchargement de la nouvelle version")
-            .setDestinationUri(Uri.fromFile(target))
+            .setDestinationInExternalFilesDir(
+                context,
+                Environment.DIRECTORY_DOWNLOADS,
+                "updates/${APK_NAME}",
+            )
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
+        request.addRequestHeader("User-Agent", "Mozilla/5.0 (Android; DossierMedical)")
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         return manager.enqueue(request)
     }

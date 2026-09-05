@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- APK de mise à jour téléchargé par le DownloadManager -->
-    <external-files-path name="updates" path="updates/" />
+    <!-- Emplacements réels : getExternalFilesDir(DIRECTORY_DOWNLOADS)/… -->
+    <external-files-path name="apk-updates" path="Download/updates/" />
+    <external-files-path name="ai-models" path="Download/models/" />
 </paths>

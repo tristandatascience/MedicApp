@@ -126,6 +126,11 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }
+
+    /** Exécute un travail d'entrée/sortie (copie de gros fichiers…). */
+    fun launchIo(block: suspend () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) { block() }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -171,13 +176,34 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
     DisposableEffect(aiDownloadId) {
         val receiver = aiDownloadId?.let { id ->
             com.medicapp.updates.ApkInstaller.registerCompletionReceiver(context, id) {
-                aiInstalled = aiEngine.isInstalled()
-                if (aiInstalled) {
+                val (ok, message) = aiEngine.downloadResult(id)
+                aiInstalled = ok
+                if (ok) {
                     Toast.makeText(context, "Moteur IA installé", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Échec du téléchargement : $message", Toast.LENGTH_LONG).show()
                 }
             }
         }
         onDispose { receiver?.let { context.unregisterReceiver(it) } }
+    }
+    var aiImporting by remember { mutableStateOf(false) }
+    val aiImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            aiImporting = true
+            vm.launchIo {
+                val ok = aiEngine.importModel(uri)
+                withContext(Dispatchers.Main) {
+                    aiImporting = false
+                    aiInstalled = aiEngine.isInstalled()
+                    Toast.makeText(
+                        context,
+                        if (ok) "Modèle IA importé" else "Fichier invalide ou incomplet (≈2 Go attendus)",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -330,29 +356,38 @@ fun SettingsScreen(onBack: () -> Unit = {}) {
                     onClick = { showDeleteAi = true },
                 )
             } else {
+                val freeMb = context.getExternalFilesDir(null)?.usableSpace?.div(1024 * 1024) ?: 0L
                 SettingRow(
                     title = "Télécharger le moteur IA (≈ 2 Go)",
                     subtitle = "Gemma 3n — transcription approfondie des documents : tampons, " +
-                        "écriture difficile, mises en page complexes. Wi-Fi conseillé. " +
+                        "écriture difficile, mises en page complexes. Espace libre : $freeMb Mo. " +
                         "Fonctionne hors ligne après téléchargement : aucune donnée " +
                         "n'est envoyée sur Internet.",
                     onClick = {
-                        val target = aiEngine.modelFile()
-                        target.parentFile?.mkdirs()
-                        val request = DownloadManager.Request(Uri.parse(com.medicapp.ai.GemmaEngine.MODEL_URL))
-                            .setTitle("Moteur IA — Dossier Médical")
-                            .setDescription("Gemma 3n E2B (≈ 2 Go)")
-                            .setDestinationUri(Uri.fromFile(target))
-                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            .setAllowedOverMetered(false)
-                            .setAllowedOverRoaming(false)
-                        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                        aiDownloadId = manager.enqueue(request)
+                        if (freeMb < 2500) {
+                            Toast.makeText(
+                                context,
+                                "Espace insuffisant : $freeMb Mo libres, environ 2,5 Go requis. " +
+                                    "Libérez de l'espace ou utilisez l'import manuel ci-dessous.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            return@SettingRow
+                        }
+                        aiDownloadId = aiEngine.startDownload()
                         Toast.makeText(
                             context,
                             "Téléchargement du moteur IA démarré — suivez la notification système",
                             Toast.LENGTH_LONG,
                         ).show()
+                    },
+                )
+                SettingRow(
+                    title = if (aiImporting) "Import en cours…" else "Importer depuis un fichier téléchargé",
+                    subtitle = "Si le téléchargement échoue : récupérez le modèle via un ordinateur " +
+                        "ou le navigateur (fichier .litertlm), placez-le sur le téléphone, puis " +
+                        "sélectionnez-le ici.",
+                    onClick = {
+                        if (!aiImporting) aiImportLauncher.launch(arrayOf("*/*"))
                     },
                 )
             }
