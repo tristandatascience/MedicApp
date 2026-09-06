@@ -62,7 +62,13 @@ object OcrFieldParser {
         """\bDr\.?\s+[A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]+(?:\s+[A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]+)?"""
     )
     private val DRUG = Regex(
-        """\b([A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]{3,}(?:\s+[A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]{3,})?)\s+(\d{1,4}(?:[.,]\d+)?)\s?(mg|microgrammes?|µg|ug|g|UI|ml|%)\b"""
+        """\b([A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]{3,}(?:[ \t]+[A-ZÉÈÀÙ][A-Za-zÉÈéèêàçùîôûÄËÏÜ\-]{3,})?)[ \t]+(\d{1,4}(?:[.,]\d+)?)[ \t]?(mg|microgrammes?|µg|ug|g|UI|ml|%)\b"""
+    )
+
+    /** Dosage présent n'importe où sur une ligne (« 400 : 1 cp », « 1 g le matin »…). */
+    private val DOSAGE_ON_LINE = Regex(
+        """\b\d{1,4}(?:[.,]\d+)?\s?(?:mg|microgrammes?|microgramme|µg|ug|UI|ml|g)\b""",
+        RegexOption.IGNORE_CASE,
     )
     private val LABORATORY_LINE = Regex(
         """(?i)^.*\b(laboratoire|biologie|centre d[e']?examens?|radiolog|imagerie)\b.*$"""
@@ -145,6 +151,71 @@ object OcrFieldParser {
 
     private val ORL_PATTERN = Regex("""(?i)\bORL\b|oto-rhino""")
 
+    /**
+     * Extraction des médicaments, ligne par ligne :
+     * 1. motif « Nom + dosage attenant » (le dosage suit immédiatement le nom) ;
+     * 2. avec dictionnaire BDPM : toute ligne contenant un nom de médicament
+     *    connu (fenêtres de 1-2 mots capitalisés), le dosage étant cherché
+     *    n'importe où sur la ligne — attrape les formats « Ibuprofene 400 :
+     *    1 cp matin et soir » que le motif strict ignore.
+     */
+    private fun extractDrugs(
+        text: String,
+        dictionary: com.medicapp.data.medic.MedDictionary?,
+    ): List<Pair<String, String?>> {
+        val found = LinkedHashMap<String, Pair<String, String?>>()
+
+        fun keyOf(name: String): String = name.lowercase()
+            .replace("é", "e").replace("è", "e").replace("ê", "e").replace("à", "a")
+            .replace("ç", "c").replace("î", "i").replace("ô", "o").replace("û", "u")
+
+        fun add(name: String, dosage: String?) {
+            val key = keyOf(name)
+            if (found.size < 12 && key !in found.keys) found[key] = name to dosage
+        }
+
+        // Passe 1 : motif strict (nom capitalisé + dosage immédiat, même ligne).
+        DRUG.findAll(text).forEach { match ->
+            val name = match.groupValues[1].trim()
+            val nameWords = name.lowercase().split(Regex("\\s+"))
+            if (name.lowercase() !in DRUG_STOPWORDS && nameWords.none { it in DRUG_STOPWORDS }) {
+                val corrected = dictionary?.correctDrug(name) ?: name
+                add(corrected, "${match.groupValues[2].replace(',', '.')} ${match.groupValues[3]}")
+            }
+        }
+
+        // Passe 2 : noms connus du dictionnaire BDPM sur chaque ligne.
+        if (dictionary != null) {
+            text.lineSequence().forEach { rawLine ->
+                val line = rawLine.trim()
+                if (line.length !in 3..120) return@forEach
+                val words = line.split(Regex("\\s+"))
+                    .map { it.trim(',', ';', ':', '.', '(', ')', '/') }
+                    .filter { it.isNotBlank() }
+                for (index in words.indices) {
+                    val first = words[index]
+                    if (first.length < 3 || !first[0].isUpperCase()) continue
+                    dictionary.correctDrug(first)?.let { add(it, dosageOn(line)) }
+                    // Fenêtre de 2 mots (« KLARICID LP »…).
+                    if (index + 1 < words.size) {
+                        val second = words[index + 1]
+                        if (second.length >= 2 && second[0].isUpperCase()) {
+                            dictionary.correctDrug("$first $second")?.let { add(it, dosageOn(line)) }
+                        }
+                    }
+                }
+            }
+        }
+        return found.values.take(10).toList()
+    }
+
+    private fun dosageOn(line: String): String? {
+        DOSAGE_ON_LINE.find(line)?.let { return it.value.replace(",", ".") }
+        // Sans unité explicite : premier nombre de 2-4 chiffres (« 400 »),
+        // évite les quantités à 1 chiffre (« 1 cp », « 2/jour »).
+        return Regex("""\b\d{2,4}\b""").find(line)?.value
+    }
+
     fun parse(text: String, dictionary: com.medicapp.data.medic.MedDictionary? = null): ParsedFields {
         if (text.isBlank()) return ParsedFields()
 
@@ -177,20 +248,7 @@ object OcrFieldParser {
             .distinct()
             .toList()
 
-        val drugs = DRUG.findAll(text)
-            .mapNotNull { m ->
-                val name = m.groupValues[1].trim()
-                if (name.lowercase() in DRUG_STOPWORDS || name.split(" ").any { it.lowercase() in DRUG_STOPWORDS }) {
-                    null
-                } else {
-                    // Correction BDPM : l'OCR écrit souvent « Dolipranne ».
-                    val corrected = dictionary?.correctDrug(name) ?: name
-                    corrected to "${m.groupValues[2].replace(',', '.')} ${m.groupValues[3]}"
-                }
-            }
-            .distinctBy { it.first.lowercase() }
-            .take(6)
-            .toList()
+        val drugs = extractDrugs(text, dictionary)
 
         val prescriber = PRESCRIBER.find(text)?.value?.replace(Regex("\\s+"), " ")?.trim()
 

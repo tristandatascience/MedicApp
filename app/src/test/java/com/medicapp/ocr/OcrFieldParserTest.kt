@@ -172,6 +172,37 @@ class OcrFieldParserTest {
     }
 
     @Test
+    fun `plusieurs médicaments capturés sur toutes les lignes`() {
+        val dictionary = com.medicapp.data.medic.MedDictionary(
+            listOf("DOLIPRANE", "IBUPROFENE", "AMOXICILLINE", "SMECTA")
+        )
+        val parsed = OcrFieldParser.parse(
+            """
+            Ordonnance
+            DOLIPRANE 1000 mg : 1 cp matin et soir
+            Ibuprofene 400 : 1 cp midi
+            AMOXICILLINE 1 g : 2/jour pendant 6 jours
+            Smecta 3 sachets par jour
+            """.trimIndent(),
+            dictionary,
+        )
+        val names = parsed.drugs.map { it.first }
+        assertTrue("médicaments reçus : $names", names.size == 4)
+        assertTrue("DOLIPRANE" in names)
+        assertTrue("IBUPROFENE" in names)
+        assertTrue("AMOXICILLINE" in names)
+        assertTrue("SMECTA" in names)
+    }
+
+    @Test
+    fun `dosage recherché n'importe où sur la ligne`() {
+        val dictionary = com.medicapp.data.medic.MedDictionary(listOf("IBUPROFENE"))
+        val parsed = OcrFieldParser.parse("Ibuprofene 400 : 1 cp matin et soir", dictionary)
+        assertEquals("IBUPROFENE", parsed.drugs.first().first)
+        assertEquals("400", parsed.drugs.first().second)
+    }
+
+    @Test
     fun `texte vide ne produit rien`() {
         val parsed = OcrFieldParser.parse("   ")
         assertNull(parsed.prescriber)
