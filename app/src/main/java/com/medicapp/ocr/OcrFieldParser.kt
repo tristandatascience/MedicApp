@@ -14,13 +14,16 @@ object OcrFieldParser {
     data class ParsedFields(
         val dates: List<LocalDate> = emptyList(),
         val times: List<LocalTime> = emptyList(),
-        /** Paires (nom du médicament, dosage détecté). */
+        /** Paires (nom du médicament, dosage détecté) — noms corrigés par le
+         *  dictionnaire BDPM si fourni (« Dolipranne » → « DOLIPRANE »). */
         val drugs: List<Pair<String, String?>> = emptyList(),
         /**
          * Lignes d'actes prescrits sans dosage médicamenteux : analyses de
          * biologie, imagerie, kinésithérapie, soins infirmiers, orthophonie…
          */
         val prescribedItems: List<String> = emptyList(),
+        /** Actes reconnus et normalisés par le dictionnaire (libellés canoniques). */
+        val correctedActs: List<String> = emptyList(),
         val prescriber: String? = null,
         /** Spécialité médicale mentionnée (celle du prescripteur ou d'une orientation). */
         val specialty: String? = null,
@@ -142,7 +145,7 @@ object OcrFieldParser {
 
     private val ORL_PATTERN = Regex("""(?i)\bORL\b|oto-rhino""")
 
-    fun parse(text: String): ParsedFields {
+    fun parse(text: String, dictionary: com.medicapp.data.medic.MedDictionary? = null): ParsedFields {
         if (text.isBlank()) return ParsedFields()
 
         val dates = mutableListOf<LocalDate>()
@@ -180,7 +183,9 @@ object OcrFieldParser {
                 if (name.lowercase() in DRUG_STOPWORDS || name.split(" ").any { it.lowercase() in DRUG_STOPWORDS }) {
                     null
                 } else {
-                    name to "${m.groupValues[2].replace(',', '.')} ${m.groupValues[3]}"
+                    // Correction BDPM : l'OCR écrit souvent « Dolipranne ».
+                    val corrected = dictionary?.correctDrug(name) ?: name
+                    corrected to "${m.groupValues[2].replace(',', '.')} ${m.groupValues[3]}"
                 }
             }
             .distinctBy { it.first.lowercase() }
@@ -217,11 +222,24 @@ object OcrFieldParser {
             .take(10)
             .toList()
 
+        // Actes normalisés par le dictionnaire (libellés canoniques) sur
+        // toutes les lignes du document, pas seulement celles détectées.
+        val correctedActs = if (dictionary != null) {
+            text.lineSequence()
+                .mapNotNull { line -> dictionary.correctAct(line.trim()) }
+                .distinct()
+                .take(10)
+                .toList()
+        } else {
+            emptyList()
+        }
+
         return ParsedFields(
             dates = dates,
             times = times,
             drugs = drugs,
             prescribedItems = prescribedItems,
+            correctedActs = correctedActs,
             prescriber = prescriber,
             specialty = specialty,
             laboratory = laboratory,

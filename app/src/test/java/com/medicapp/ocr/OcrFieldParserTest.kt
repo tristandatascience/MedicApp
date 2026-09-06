@@ -148,6 +148,30 @@ class OcrFieldParserTest {
     }
 
     @Test
+    fun `nom de médicament corrigé par le dictionnaire BDPM`() {
+        val dictionary = com.medicapp.data.medic.MedDictionary(listOf("DOLIPRANE"))
+        val parsed = OcrFieldParser.parse("Dolipranne 1000 mg : 1 comprimé", dictionary)
+        assertEquals("DOLIPRANE", parsed.drugs.first().first)
+        assertEquals("1000 mg", parsed.drugs.first().second)
+    }
+
+    @Test
+    fun `actes normalisés par le dictionnaire`() {
+        val dictionary = com.medicapp.data.medic.MedDictionary(emptyList())
+        val parsed = OcrFieldParser.parse(
+            """
+            Ordonnance de biologie
+            NFS plaquettes
+            Bilan lipidique complet
+            Ionogramme
+            """.trimIndent(),
+            dictionary,
+        )
+        assertTrue(parsed.correctedActs.contains("NFS (numération formule sanguine)"))
+        assertTrue(parsed.correctedActs.contains("Bilan lipidique"))
+    }
+
+    @Test
     fun `texte vide ne produit rien`() {
         val parsed = OcrFieldParser.parse("   ")
         assertNull(parsed.prescriber)

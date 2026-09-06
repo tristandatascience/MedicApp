@@ -41,9 +41,18 @@ class AppContainer(context: Context) {
 
     val pinHasher: Pbkdf2PinHasher by lazy { Pbkdf2PinHasher() }
 
-    /** Moteur IA embarqué optionnel (Gemma 3n, téléchargé à la demande). */
+    /** Moteur IA embarqué optionnel (Gemma, téléchargé à la demande). */
     val gemmaEngine: com.medicapp.ai.GemmaEngine by lazy {
         com.medicapp.ai.GemmaEngine(appContext)
+    }
+
+    /** Dictionnaire médical français (BDPM + actes) pour corriger l'OCR. */
+    val medDictionary: com.medicapp.data.medic.MedDictionary by lazy {
+        com.medicapp.data.medic.MedDictionary(appContext).also { dictionary ->
+            applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                dictionary.ensureLoaded()
+            }
+        }
     }
 
     private val keystoreWrapper: com.medicapp.data.crypto.KeystoreWrapper by lazy { AndroidKeystoreWrapper() }

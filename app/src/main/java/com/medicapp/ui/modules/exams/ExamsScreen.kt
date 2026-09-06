@@ -275,16 +275,21 @@ fun ExamFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Unit) {
 
     // Pré-remplissage depuis le résultat numérisé (validation manuelle, § 4.5 :
     // l'OCR sert à l'indexation, aucune valeur n'est interprétée).
+    val medDictionary = com.medicapp.ui.LocalAppContainer.current.medDictionary
     LaunchedEffect(scanDocumentId) {
         if (scanDocumentId != null && id <= 0) {
             val doc = vm.getDocument(scanDocumentId)
             val text = doc?.ocrText
             if (!text.isNullOrBlank()) {
-                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text, medDictionary)
                 parsed.examCategory?.let { category = it }
                 parsed.mostLikelyDate?.let { if (examDate == null) examDate = it }
                 parsed.laboratory?.let { if (laboratory.isBlank()) laboratory = it }
                 parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
+                // Intitulé : premier acte reconnu (« NFS (numération…) »…).
+                if (title.isBlank() && parsed.correctedActs.isNotEmpty()) {
+                    title = parsed.correctedActs.first()
+                }
                 prefilledFromScan = true
             } else if (doc != null) {
                 // OCR sans texte exploitable : saisie manuelle, document joint à l'enregistrement.

@@ -284,12 +284,13 @@ fun TreatmentFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () -> Un
     var prefilledFromScan by remember { mutableStateOf(false) }
 
     // Pré-remplissage depuis l'ordonnance numérisée (validation manuelle, § 4.3).
+    val medDictionary = com.medicapp.ui.LocalAppContainer.current.medDictionary
     LaunchedEffect(scanDocumentId) {
         if (scanDocumentId != null && id <= 0) {
             val doc = vm.getDocument(scanDocumentId)
             val text = doc?.ocrText
             if (!text.isNullOrBlank()) {
-                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text, medDictionary)
                 parsed.drugs.firstOrNull()?.let { (name, detectedDosage) ->
                     if (drugName.isBlank()) drugName = name
                     if (detectedDosage != null && dosage.isBlank()) dosage = detectedDosage

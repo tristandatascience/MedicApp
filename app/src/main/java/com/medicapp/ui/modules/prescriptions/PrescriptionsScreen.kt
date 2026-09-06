@@ -302,21 +302,27 @@ fun PrescriptionFormScreen(id: Long, scanDocumentId: Long? = null, onBack: () ->
     var prefilledFromScan by remember { mutableStateOf(false) }
 
     // Pré-remplissage depuis l'ordonnance numérisée (validation manuelle, § 4.3).
+    val medDictionary = com.medicapp.ui.LocalAppContainer.current.medDictionary
     LaunchedEffect(scanDocumentId) {
         if (scanDocumentId != null && id <= 0) {
             val doc = vm.getDocument(scanDocumentId)
             val text = doc?.ocrText
             if (!text.isNullOrBlank()) {
-                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text)
+                val parsed = com.medicapp.ocr.OcrFieldParser.parse(text, medDictionary)
                 parsed.mostLikelyDate?.let { if (prescriptionDate == null) prescriptionDate = it }
                 parsed.prescriber?.let { if (prescriber.isBlank()) prescriber = it }
                 parsed.specialty?.let { if (specialty.isBlank()) specialty = it }
                 if (medicines.isEmpty()) {
-                    // Médicaments dosés, sinon actes prescrits (analyses, kiné,
-                    // soins infirmiers, orientation…).
+                    // Ordonnance de médicaments : lignes « nom + dosage »
+                    // (noms corrigés par la base BDPM). Ordonnance de biologie
+                    // ou imagerie : actes reconnus, en priorité les libellés
+                    // canoniques du dictionnaire.
                     medicines = when {
                         parsed.drugs.isNotEmpty() -> parsed.drugs.map { (name, dosage) ->
                             MedicineDraft(name = name, dosage = dosage ?: "", duration = "")
+                        }
+                        parsed.correctedActs.isNotEmpty() -> parsed.correctedActs.map {
+                            MedicineDraft(name = it, dosage = "", duration = "")
                         }
                         parsed.prescribedItems.isNotEmpty() -> parsed.prescribedItems.map {
                             MedicineDraft(name = it, dosage = "", duration = "")
